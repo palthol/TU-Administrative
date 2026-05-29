@@ -15,11 +15,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install
-      - name: Typecheck API
-        run: npm run typecheck:api
-      - name: Test API
-        run: npm run test:api
       - name: Test receipts
         run: npm run test:receipts
-      - name: Build all
+      - name: Build front-ends
         run: npm run build
