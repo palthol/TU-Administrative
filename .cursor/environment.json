@@ -1,0 +1,10 @@
+{
+  "$schema": "https://cursor.com/schemas/environment.json",
+  "install": "npm install",
+  "terminals": [
+    {
+      "name": "receipts-dev",
+      "command": "npm run dev:receipts"
+    }
+  ]
+}

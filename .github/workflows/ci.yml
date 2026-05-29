@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - name: Typecheck API
+        run: npm run typecheck:api
+      - name: Test API
+        run: npm run test:api
+      - name: Test receipts
+        run: npm run test:receipts
+      - name: Build all
+        run: npm run build
