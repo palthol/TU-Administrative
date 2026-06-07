@@ -10,12 +10,14 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:receipts dev:waiver-viewer",
+    "dev": "npm-run-all --parallel dev:receipts dev:waiver-viewer dev:dashboard",
     "dev:receipts": "npm --workspace apps/receipts run dev",
     "dev:waiver-viewer": "npm --workspace apps/waiver-viewer run dev",
-    "build": "npm-run-all build:receipts build:waiver-viewer",
+    "dev:dashboard": "npm --workspace apps/dashboard run dev",
+    "build": "npm-run-all build:receipts build:waiver-viewer build:dashboard",
     "build:receipts": "npm --workspace apps/receipts run build",
     "build:waiver-viewer": "npm --workspace apps/waiver-viewer run build",
+    "build:dashboard": "npm --workspace apps/dashboard run build",
     "test": "npm-run-all test:receipts",
     "test:receipts": "npm --workspace apps/receipts run test"
   },
