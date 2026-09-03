@@ -4,6 +4,13 @@ This repo is the **front-end + design home** for Temple Underground's admin-faci
 There is **no backend here.** The one true API and the Supabase schema live in the
 **`temple underground signup`** repo (`services/api`), which is already deployed.
 
+Also read the repository control documents before starting work:
+
+- `docs/current-state.md`
+- `docs/target-state.md`
+- `work-queue/README.md`
+- `docs/reviewer-guide.md`
+
 npm-workspaces monorepo. Node >= 22, npm >= 10.
 
 ```
@@ -51,7 +58,8 @@ the API from the signup repo (`npm run dev:api` there) when you need live data.
 - Reuse `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) for new admin calls.
 - When the API contract changes (in the signup repo), update `docs/frontend-design/` to match.
 
-## Migration dependency (heads-up for billing UI)
+## Migration dependency
 
 The personal-finance and charge-discount screens depend on Supabase migrations `0017`/`0019`,
-which may be unapplied in production. See `docs/api-schema-audit.md` in the signup repo.
+which were verified as applied in production on 2026-09-03. Re-check migration state before
+schema-dependent changes; do not rely on older frontend warnings.

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "repository": "palthol/TU-Administrative",
+  "updated": "2026-09-03",
+  "production_write_default": false,
+  "tasks": [
+    {"id":"ADM-DOC-001","lane":"docs","status":"done","depends_on":[]},
+    {"id":"ADM-ARCH-001","lane":"architecture","status":"ready","depends_on":["ADM-DOC-001"]},
+    {"id":"ADM-TEST-001","lane":"tests","status":"ready","depends_on":["ADM-DOC-001"]},
+    {"id":"ADM-TEST-002","lane":"tests","status":"ready","depends_on":["ADM-DOC-001"]},
+    {"id":"ADM-SEC-001","lane":"security","status":"ready","depends_on":["ADM-DOC-001"]},
+    {"id":"ADM-OPS-001","lane":"deployment","status":"ready","depends_on":["ADM-DOC-001"]},
+    {"id":"ADM-VAL-001","lane":"validation","status":"blocked","depends_on":["ADM-TEST-001","ADM-TEST-002","ADM-OPS-001"]},
+    {"id":"ADM-UI-001","lane":"frontend","status":"blocked","depends_on":["ADM-ARCH-001","ADM-VAL-001"]},
+    {"id":"ADM-UI-002","lane":"frontend","status":"blocked","depends_on":["ADM-ARCH-001","ADM-VAL-001"]},
+    {"id":"ADM-WAIVER-001","lane":"frontend","status":"blocked","depends_on":["ADM-TEST-002","ADM-VAL-001"]},
+    {"id":"ADM-AUTH-001","lane":"security","status":"blocked","depends_on":["ADM-ARCH-001","ADM-OPS-001"]},
+    {"id":"ADM-PAY-001","lane":"integrations","status":"blocked","depends_on":["ADM-AUTH-001"]},
+    {"id":"ADM-MSG-001","lane":"integrations","status":"blocked","depends_on":["ADM-AUTH-001"]}
+  ]
+}

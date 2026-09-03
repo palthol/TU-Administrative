@@ -52,6 +52,6 @@ response shape it should call.
 ## Dependency note (read before building billing screens)
 
 Two billing surfaces (personal finance entries; charge discounts) depend on Supabase
-migrations `0017` and `0019`, which were **not yet applied to production** as of
-2026-05-29. See the audit in the signup repo: `docs/api-schema-audit.md`. Apply those
-migrations before relying on those endpoints.
+migrations `0017` and `0019`. Both were verified as applied to production on 2026-09-03.
+See the workspace `docs/current-state.md` and the API repository's
+`docs/api-schema-audit.md` before making schema-dependent changes.

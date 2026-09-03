@@ -35,7 +35,7 @@ npm run dev:waiver-viewer
 Open the Vite URL, usually:
 
 ```text
-http://localhost:5176
+http://localhost:5177
 ```
 
 Vite proxies `/api` to `http://localhost:3001`.
