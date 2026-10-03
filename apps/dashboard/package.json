@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/operator.test.mjs",
+    "test:browser": "node tests/browser.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

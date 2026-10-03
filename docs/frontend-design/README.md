@@ -26,6 +26,9 @@ response shape it should call.
 
 ## Contents
 
+The current dashboard release is documented in [dashboard-redesign.md](./dashboard-redesign.md).
+Its endpoint map and explicit gates supersede the old developer-console behavior.
+
 | Doc | What it covers |
 | --- | --- |
 | [`api-reference.md`](./api-reference.md) | The real endpoint contract the admin front-ends call (base URL, auth, envelope, every endpoint). |

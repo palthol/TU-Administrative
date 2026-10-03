@@ -18,7 +18,8 @@
     "build:receipts": "npm --workspace apps/receipts run build",
     "build:waiver-viewer": "npm --workspace apps/waiver-viewer run build",
     "build:dashboard": "npm --workspace apps/dashboard run build",
-    "test": "npm-run-all test:receipts",
+    "test": "npm-run-all test:receipts test:dashboard",
+    "test:dashboard": "npm --workspace apps/dashboard run test",
     "test:receipts": "npm --workspace apps/receipts run test"
   },
   "devDependencies": {
