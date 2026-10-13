@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/admin-api';
-import { operatorError, type Connection } from '@/lib/finance';
+import { operatorError, type Connection, type Destination } from '@/lib/finance';
 import { SharePreviewPanel, type SharePreviewPayload } from '@/components/SharePreviewPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,15 +9,35 @@ import { Field, FinancePanel, PageHeading, ScopeNote, StatusBanner } from '@/com
 
 type PreviewScenario = 'quick' | 'invoice' | 'formal';
 
-export function More({ connection, defaultIssuedBy }: { connection: Connection; defaultIssuedBy: string }) {
+export function More({
+  connection,
+  defaultIssuedBy,
+  onGo,
+}: {
+  connection: Connection;
+  defaultIssuedBy: string;
+  onGo?: (dest: Destination) => void;
+}) {
   return (
     <>
       <PageHeading
         eyebrow="Finance"
         title="More"
-        summary="Share samples and rare receipt corrections. Void and refund need explicit confirmation."
+        summary="Less common tools. Peak-hour work stays on Cash and Recent."
         badge="Specialist"
       />
+      {onGo ? (
+        <FinancePanel title="Also available" description="Invoice and Formal stay one tap away on phone.">
+          <div className="actions">
+            <Button type="button" className="fat-action" variant="secondary" onClick={() => onGo('Invoice')}>
+              Invoice drafts
+            </Button>
+            <Button type="button" className="fat-action" variant="secondary" onClick={() => onGo('Formal')}>
+              Formal billing
+            </Button>
+          </div>
+        </FinancePanel>
+      ) : null}
       <SharePreviewSection />
       <VoidReceipt connection={connection} />
       <RefundReceipt connection={connection} defaultIssuedBy={defaultIssuedBy} />

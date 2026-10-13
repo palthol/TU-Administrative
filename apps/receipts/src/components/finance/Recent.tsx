@@ -108,14 +108,14 @@ export function Recent({ connection }: { connection: Connection }) {
                     {r.entry_kind === 'invoice' && r.invoice_status !== 'void' && r.invoice_status !== 'paid' ? (
                       <div className="actions">
                         {r.invoice_status === 'draft' ? (
-                          <Button type="button" size="sm" variant="outline" onClick={() => void setInvoiceStatus(r.id, 'sent')}>
+                          <Button type="button" variant="outline" className="fat-action" onClick={() => void setInvoiceStatus(r.id, 'sent')}>
                             Mark sent
                           </Button>
                         ) : null}
-                        <Button type="button" size="sm" variant="outline" onClick={() => void setInvoiceStatus(r.id, 'paid')}>
+                        <Button type="button" variant="outline" className="fat-action" onClick={() => void setInvoiceStatus(r.id, 'paid')}>
                           Mark paid
                         </Button>
-                        <Button type="button" size="sm" variant="ghost" onClick={() => void setInvoiceStatus(r.id, 'void')}>
+                        <Button type="button" variant="ghost" onClick={() => void setInvoiceStatus(r.id, 'void')}>
                           Void
                         </Button>
                       </div>
@@ -154,16 +154,16 @@ export function Recent({ connection }: { connection: Connection }) {
                 </div>
               </dl>
               {r.entry_kind === 'invoice' && r.invoice_status !== 'void' && r.invoice_status !== 'paid' ? (
-                <div className="actions">
+                <div className="fat-action-row">
                   {r.invoice_status === 'draft' ? (
-                    <Button type="button" size="sm" variant="outline" onClick={() => void setInvoiceStatus(r.id, 'sent')}>
+                    <Button type="button" variant="outline" className="fat-action" onClick={() => void setInvoiceStatus(r.id, 'sent')}>
                       Mark sent
                     </Button>
                   ) : null}
-                  <Button type="button" size="sm" variant="outline" onClick={() => void setInvoiceStatus(r.id, 'paid')}>
+                  <Button type="button" className="fat-action" onClick={() => void setInvoiceStatus(r.id, 'paid')}>
                     Mark paid
                   </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void setInvoiceStatus(r.id, 'void')}>
+                  <Button type="button" variant="ghost" className="fat-action" onClick={() => void setInvoiceStatus(r.id, 'void')}>
                     Void
                   </Button>
                 </div>

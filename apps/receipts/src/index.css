@@ -318,20 +318,25 @@ p {
 }
 .search-field {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.65rem;
+  align-items: center;
 }
 .search-field input {
   flex: 1;
 }
+.search-live {
+  flex-shrink: 0;
+}
 .search-option-list {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 .person-result,
 .board-row {
   width: 100%;
   text-align: left;
-  padding: 0.75rem;
+  padding: 0.85rem 1rem;
+  min-height: 56px;
   display: grid;
   gap: 0.25rem;
   border: 1px solid hsl(var(--border));
@@ -339,10 +344,79 @@ p {
   background: white;
   overflow-wrap: anywhere;
 }
+.person-result-primary {
+  border-color: #c98989;
+  background: #fff8f7;
+}
+.person-result .use-hint {
+  color: #852525;
+  font-weight: 650;
+  font-size: 0.8rem;
+}
 .person-result span,
 .board-row span {
   font-size: 0.875rem;
   color: hsl(var(--muted-foreground));
+}
+.register-amount {
+  min-height: 64px !important;
+  font-size: 1.75rem !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.method-field {
+  display: grid;
+  gap: 0.65rem;
+}
+.method-chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.method-chips-more {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.method-chip {
+  min-height: 52px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: white;
+  font-weight: 600;
+  padding: 0.65rem 0.5rem;
+}
+.method-chip-active {
+  background: #943131;
+  border-color: #943131;
+  color: white;
+}
+.fat-action {
+  min-height: 52px !important;
+  padding-left: 1.1rem !important;
+  padding-right: 1.1rem !important;
+  font-weight: 650;
+}
+.fat-action-row {
+  display: grid;
+  gap: 0.65rem;
+}
+.fat-action-row .fat-action {
+  width: 100%;
+}
+.inline-edit {
+  margin-left: 0.5rem;
+  display: inline;
+  min-height: auto;
+  padding: 0;
+}
+.register-submit-inline {
+  display: none;
+}
+.register-sticky {
+  display: none;
+}
+.mobile-secondary-nav {
+  display: none;
 }
 .board-row-active {
   outline: 3px solid hsl(var(--primary));
@@ -506,6 +580,15 @@ p {
   padding-top: 1rem;
 }
 
+@media (min-width: 1024px) {
+  .register-submit-inline {
+    display: inline-flex;
+  }
+  .method-chips {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1023px) {
   .operator-rail {
     display: none;
@@ -520,17 +603,28 @@ p {
     font-weight: 800;
     color: #852525;
   }
-  .mobile-more {
+  .mobile-secondary-nav {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .mobile-secondary-nav a {
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
-    padding: 0.5rem 0.7rem;
+    padding: 0.35rem 0.25rem;
     text-decoration: underline;
-    color: inherit;
+    text-underline-offset: 0.15rem;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.85rem;
+  }
+  .mobile-secondary-nav a[aria-current] {
+    color: #852525;
+    font-weight: 650;
   }
   .bottom-nav {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     position: fixed;
     bottom: 0;
     left: 0;
@@ -548,7 +642,8 @@ p {
     gap: 0.2rem;
     padding: 0.55rem 0.2rem;
     min-height: 60px;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
     color: inherit;
     text-decoration: none;
   }
@@ -560,6 +655,25 @@ p {
   .workspace-main {
     padding: 1.25rem 1rem calc(6rem + env(safe-area-inset-bottom, 0px));
   }
+  .workspace-main-register {
+    padding-bottom: calc(9.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .register-sticky {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    z-index: 28;
+    padding: 0.65rem 1rem;
+    background: linear-gradient(to top, #f7f7f5 70%, #f7f7f500);
+  }
+  .register-sticky .fat-action {
+    width: 100%;
+    box-shadow: 0 4px 16px #171c2422;
+  }
   .page-heading {
     flex-direction: column;
   }
@@ -569,6 +683,9 @@ p {
   .record-cards {
     display: grid;
     gap: 0.75rem;
+  }
+  .method-chips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

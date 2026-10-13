@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/admin-api';
 import {
   defaultTomorrowIsoDate,
@@ -27,6 +27,7 @@ export function Invoice({ connection, defaultIssuedBy }: { connection: Connectio
   const [loading, setLoading] = useState(false);
   const [last, setLast] = useState<{ id: string; cents: number; due: string } | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
 
   const shareText = useMemo(() => {
     if (!last || !memberName.trim()) return '';
@@ -120,12 +121,22 @@ export function Invoice({ connection, defaultIssuedBy }: { connection: Connectio
               setMemberName(displayName);
               setSelectedAccountId(accountId);
             }}
+            onPersonChosen={() => {
+              window.setTimeout(() => amountRef.current?.focus(), 50);
+            }}
           />
           <Field id="inv-name" label="Member display name">
             <Input id="inv-name" value={memberName} onChange={(e) => setMemberName(e.target.value)} />
           </Field>
           <Field id="inv-amt" label="Amount due (USD)">
-            <Input id="inv-amt" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
+            <Input
+              ref={amountRef}
+              id="inv-amt"
+              className="register-amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+            />
           </Field>
           <Field id="inv-due" label="Due date">
             <Input id="inv-due" type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />

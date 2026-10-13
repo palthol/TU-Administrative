@@ -169,3 +169,21 @@ Not part of Option A delivery; recorded so build work stays mechanical:
 - Visual language recognizably matches the dashboard operator workspace.
 - `npm run test:receipts` and `npm run build:receipts` pass; no API/schema changes in the
   signup repo required for the UI-only pass.
+
+## Mobile register mode (high-frequency path)
+
+Peak-hour volume is **Cash → person → amount → method → save → share**. Optimize that path;
+keep Invoice/Formal deliberate and one tap further on phone.
+
+| Change | Behavior |
+| --- | --- |
+| Mobile bottom nav | **Cash · Recent · More** (3 tabs). Invoice/Formal via header links + More shortcuts. |
+| Participant lookup | Type-to-search (250ms debounce); no Search tap required. Top match is emphasized; after Use, focus moves to Amount. External counterparty appears after an empty search. |
+| Cash amount | Large tabular input (`register-amount`), `inputMode=decimal`. |
+| Method | Chip row: Cash / Card / CashApp / Venmo / More (PayPal, Zelle, Other). |
+| Issued by | Session default from staff name; inline Edit, not a full field every time. |
+| Notes | Collapsed behind “Add note”. |
+| Sticky CTA (≤1023px) | Fixed **Save cash log** above bottom nav; after save becomes **Share or copy** + **Log another** (keeps method + issued-by). |
+| Recent cards | Fat **Mark sent / Mark paid** actions (≈52px). |
+
+Desktop keeps the five-item rail and an in-form Save button (sticky bar is phone-only).

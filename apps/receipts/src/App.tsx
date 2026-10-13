@@ -228,23 +228,34 @@ function Workspace({
             </p>
           </div>
           <div className="actions">
-            <a
-              className="mobile-more"
-              href="#more"
-              aria-current={nav === 'More' ? 'page' : undefined}
-              onClick={(e) => {
-                e.preventDefault();
-                go('More');
-              }}
-            >
-              More
-            </a>
+            <div className="mobile-secondary-nav">
+              <a
+                href="#invoice"
+                aria-current={nav === 'Invoice' ? 'page' : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  go('Invoice');
+                }}
+              >
+                Invoice
+              </a>
+              <a
+                href="#formal"
+                aria-current={nav === 'Formal' ? 'page' : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  go('Formal');
+                }}
+              >
+                Formal
+              </a>
+            </div>
             <Button type="button" variant="outline" onClick={onLock}>
               Lock
             </Button>
           </div>
         </header>
-        <main id="finance-main" className="workspace-main">
+        <main id="finance-main" className={`workspace-main${nav === 'Cash' ? ' workspace-main-register' : ''}`}>
           {visited.includes('Cash') ? (
             <div hidden={nav !== 'Cash'}>
               <Cash connection={connection} defaultIssuedBy={defaultIssuedBy} />
@@ -272,12 +283,16 @@ function Workspace({
           ) : null}
           {visited.includes('More') ? (
             <div hidden={nav !== 'More'}>
-              <More connection={connection} defaultIssuedBy={defaultIssuedBy} />
+              <More
+                connection={connection}
+                defaultIssuedBy={defaultIssuedBy}
+                onGo={(dest) => go(dest)}
+              />
             </div>
           ) : null}
         </main>
-        <nav className="bottom-nav" aria-label="Finance destinations">
-          {(['Cash', 'Invoice', 'Recent', 'Formal'] as const).map(navLink)}
+        <nav className="bottom-nav" aria-label="Primary finance destinations">
+          {(['Cash', 'Recent', 'More'] as const).map(navLink)}
         </nav>
       </div>
     </div>

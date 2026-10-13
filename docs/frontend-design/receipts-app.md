@@ -16,7 +16,10 @@ This file remains the live endpoint wiring map (destination names updated below)
   `{ ok, status, data }`. All handlers check `ok` then read `data.<field>` / `data.error`.
 - **Destinations (hash):** `#cash` · `#invoice` · `#recent` · `#formal` · `#more`
   (void / refund / share preview live under More; board picker lives on Formal).
-- **Shared sub-component:** `ParticipantLookup` (used by Cash + Invoice).
+- **Mobile primary nav:** Cash · Recent · More. Invoice/Formal via header links and More
+  shortcuts (see register-mode section in [`receipts-redesign.md`](./receipts-redesign.md)).
+- **Shared sub-component:** `ParticipantLookup` (used by Cash + Invoice) — debounced
+  type-to-search; optional `onPersonChosen` focuses Amount after Use.
 
 ---
 
