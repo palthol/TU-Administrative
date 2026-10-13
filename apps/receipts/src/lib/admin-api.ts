@@ -15,6 +15,7 @@ export async function adminFetch<T = Record<string, unknown>>(
   options: {
     method?: string;
     json?: unknown;
+    signal?: AbortSignal;
   } = {},
 ): Promise<AdminFetchResult<T>> {
   const base = apiBase.replace(/\/$/, '');
@@ -27,11 +28,22 @@ export async function adminFetch<T = Record<string, unknown>>(
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(options.json);
   }
-  const res = await fetch(`${base}${path}`, {
-    method: options.method || 'GET',
-    headers,
-    body,
-  });
-  const data = (await res.json().catch(() => ({}))) as T;
-  return { ok: res.ok, status: res.status, data };
+  try {
+    const res = await fetch(`${base}${path}`, {
+      method: options.method || 'GET',
+      headers,
+      body,
+      signal: options.signal,
+    });
+    const data = (await res.json().catch(() => ({}))) as T;
+    if (res.status === 401 && adminKey.trim()) {
+      window.dispatchEvent(new Event('finance-session-expired'));
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    if (options.signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+      return { ok: false, status: 0, data: { error: 'aborted' } as T };
+    }
+    throw err;
+  }
 }
