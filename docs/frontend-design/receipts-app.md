@@ -4,20 +4,19 @@
 tab, exactly which endpoint each control calls so the wiring stays correct as the UI evolves
 (or is rebuilt elsewhere). Endpoint detail is in [`api-reference.md`](./api-reference.md).
 
-**Target IA / visual redesign (design only):** [`receipts-redesign.md`](./receipts-redesign.md).
-Until that ships, this file remains the live wiring map.
+**Operator IA / visual redesign:** [`receipts-redesign.md`](./receipts-redesign.md).
+This file remains the live endpoint wiring map (destination names updated below).
 
 ## Shell
 
-- **Header inputs:** `API base` (→ `apiBase`, default `http://localhost:3001`) and
-  `Admin key` (→ `x-admin-key`). Every call below sends the key; if it's blank the UI blocks
-  the call locally with "Enter your admin API key (x-admin-key)."
-- **Fetch helper:** `adminFetch(apiBase, adminKey, path, { method, json })` →
+- **Unlock gate:** API base + staff key → `GET /api/admin/auth/me` (roles `owner` |
+  `finance` | `front_desk`). Key is memory-only; Lock/reload clears it. `401` dispatches
+  `finance-session-expired` and locks the workspace.
+- **Fetch helper:** `adminFetch(apiBase, adminKey, path, { method, json, signal? })` →
   `{ ok, status, data }`. All handlers check `ok` then read `data.<field>` / `data.error`.
-- **Tabs:** `quick` Cash log · `invoice` Invoice · `recent` Recent · `formal` Formal billing
-  · `preview` Share preview · `lookup` Board lookup · `void` Void receipt · `refund` Refund
-  receipt.
-- **Shared sub-component:** `ParticipantLookupField` (used by Cash log + Invoice).
+- **Destinations (hash):** `#cash` · `#invoice` · `#recent` · `#formal` · `#more`
+  (void / refund / share preview live under More; board picker lives on Formal).
+- **Shared sub-component:** `ParticipantLookup` (used by Cash + Invoice).
 
 ---
 
@@ -100,11 +99,11 @@ No API. Renders sample SMS/card text for `quick` / `invoice` / `formal` scenario
 
 ---
 
-## Tab: Board lookup (`LookupTab`)
+## Formal: Payment board picker (was Lookup tab)
 
 | Action | Method · Endpoint | Reads | UI |
 | --- | --- | --- | --- |
-| **Refresh board** | `GET /api/admin/reporting/views/payment-board?limit=100&sort=next_due_date&order=asc` | `data.rows[]` | Renders all columns; clicking a row copies `account_id=…\ncharge_id=…` to clipboard for the Formal billing tab. |
+| **Load board** | `GET /api/admin/reporting/views/payment-board?limit=100&sort=next_due_date&order=asc` | `data.rows[]` | Choosing a row sets `account_id` + `charge_id` (+ member name when present) in memory for Formal — no clipboard handoff. |
 
 ---
 

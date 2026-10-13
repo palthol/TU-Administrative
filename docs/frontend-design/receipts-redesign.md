@@ -1,7 +1,7 @@
 # Receipts / finance app — operator redesign brief
 
-Status: **design only** (Option A). Implementation follows after this doc is accepted.
-Companion contract (current built UI): [`receipts-app.md`](./receipts-app.md).
+Status: **implemented on develop track** (UI redesign in `apps/receipts`). Keep this brief as the
+target IA; endpoint bodies remain in [`receipts-app.md`](./receipts-app.md).
 Philosophy source: [`dashboard-redesign.md`](./dashboard-redesign.md) and `apps/dashboard`.
 
 ## Product intent

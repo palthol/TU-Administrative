@@ -36,7 +36,7 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 | [`api-reference.md`](./api-reference.md) | The real endpoint contract the admin front-ends call (base URL, auth, envelope, every endpoint). |
 | [`dashboard-redesign.md`](./dashboard-redesign.md) | `apps/dashboard` — operator surface, endpoint map, and release gates. |
 | [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — current tab-by-tab → endpoint map (built UI). |
-| [`receipts-redesign.md`](./receipts-redesign.md) | `apps/receipts` — target operator finance workspace (design only); includes ObsidianUI decision. |
+| [`receipts-redesign.md`](./receipts-redesign.md) | `apps/receipts` — operator finance workspace IA + ObsidianUI decision (implemented). |
 | [`waiver-viewer.md`](./waiver-viewer.md) | `apps/waiver-viewer` — viewer surface → endpoint map. |
 | [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md) | `apps/waiver-viewer` — light polish / gap list (design only). |
 
