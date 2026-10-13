@@ -8,14 +8,17 @@ alwaysApply: true
 - This repo has **no backend**. The deployed API and Supabase schema live in the
   `temple underground signup` repo (`services/api`). Never add a service, call a database
   directly, or place the Supabase service-role key here.
-- Front-ends (`apps/receipts`, `apps/waiver-viewer`) are the **contract**: don't change a
-  request/response shape to fit a server. The endpoint contract is in
-  `docs/frontend-design/api-reference.md`.
+- Front-ends (`apps/dashboard`, `apps/receipts`, `apps/waiver-viewer`) are the **contract**:
+  don't change a request/response shape to fit a server. The endpoint contract is in
+  `docs/frontend-design/api-reference.md`. Dashboard redesign notes live in
+  `docs/frontend-design/dashboard-redesign.md`.
 - When building or editing an admin screen, follow `docs/frontend-design/` — each screen is
   mapped to its endpoint, request body, and response shape. Keep those docs in sync if a
   call changes.
 - Admin calls send `x-admin-key`; viewer calls use Cloudflare Access (no admin key). Money is
   integer cents. Success is `200 { ok:true, ... }`; failure is `{ ok:false, error }`. Reuse
-  `apps/receipts/src/lib/admin-api.ts` (`adminFetch`).
+  `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) (and the dashboard's matching helpers)
+  for new admin calls.
 - Default scope here is infrastructure / scaffolding / documentation — not UI polish unless
   explicitly requested.
+- Cross-tool agent guide: `AGENTS.md` (thin pointers: `CHATGPT.md`, `CODEX.md`, `GROK.md`).

@@ -9,8 +9,9 @@ response shape it should call.
 
 - **No backend lives here.** The one true API is the deployed service in the
   **`temple underground signup`** repo (`services/api`). This repo holds the admin
-  **front-ends** (`apps/receipts`, `apps/waiver-viewer`) and these **design docs**.
-- **The UI is the contract.** Where a screen already exists (the receipts app is built),
+  **front-ends** (`apps/dashboard`, `apps/receipts`, `apps/waiver-viewer`) and these
+  **design docs**.
+- **The UI is the contract.** Where a screen already exists (dashboard, receipts),
   the UI's existing calls are the source of truth and are documented as-is. Do not change
   request/response shapes to "improve" them without also changing the API.
 - **Docs describe the real API**, not an idealized one. See [`api-reference.md`](./api-reference.md).
@@ -32,6 +33,7 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 | Doc | What it covers |
 | --- | --- |
 | [`api-reference.md`](./api-reference.md) | The real endpoint contract the admin front-ends call (base URL, auth, envelope, every endpoint). |
+| [`dashboard-redesign.md`](./dashboard-redesign.md) | `apps/dashboard` — operator surface, endpoint map, and release gates. |
 | [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — tab-by-tab → endpoint map (built UI). |
 | [`waiver-viewer.md`](./waiver-viewer.md) | `apps/waiver-viewer` — viewer surface → endpoint map. |
 

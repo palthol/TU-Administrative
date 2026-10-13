@@ -7,17 +7,28 @@ There is **no backend here.** The one true API and the Supabase schema live in t
 npm-workspaces monorepo. Node >= 22, npm >= 10.
 
 ```
+apps/dashboard/       Operator dashboard (Today, People, Classes, Billing, Reports). UI built.
 apps/receipts/        Operator finance tool (cash log, invoices, formal billing). UI built.
 apps/waiver-viewer/   Mobile waiver review app (Cloudflare Access protected).
 docs/frontend-design/ Design home: per-screen → API function maps for the admin apps.
 ```
+
+## Tool entry points
+
+| Tool | Start here |
+| --- | --- |
+| Cursor | This file + `.cursor/rules/frontend-design.mdc` + `.cursor/environment.json` |
+| ChatGPT / Codex | This file (canonical). Thin pointer: `CHATGPT.md` / `CODEX.md` |
+| Grok | This file (canonical). Thin pointer: `GROK.md` |
+
+Do not fork instructions per tool — edit **this** file when conventions change.
 
 ## What this repo is for
 
 - Holding the admin **front-ends** (source of truth for request/response shapes).
 - Writing **design docs** so that, when there's time to build/finish a UI, wiring it to the
   deployed API is mechanical: every button maps to a documented endpoint.
-- Being friendly to **Cursor Cloud agents** doing infrastructure/scaffolding/doc work — not
+- Being friendly to coding agents doing infrastructure/scaffolding/doc work — not
   UI polish unless asked.
 
 **Do not** add a backend/service to this repo, call a database directly, or hold the
@@ -26,6 +37,7 @@ Supabase service-role key here. All server work belongs in the signup/API repo.
 ## Where things are
 
 - **API contract & per-screen maps:** `docs/frontend-design/` (start at `README.md`).
+- **Dashboard redesign notes / gates:** `docs/frontend-design/dashboard-redesign.md`.
 - **The real API** + schema + the live-DB audit: the `temple underground signup` repo
   (`services/api`, `supabase/migrations/`, `docs/admin-api.md`, `docs/api-schema-audit.md`).
 
@@ -33,11 +45,14 @@ Supabase service-role key here. All server work belongs in the signup/API repo.
 
 ```bash
 npm install
-npm run dev              # receipts + waiver-viewer in parallel
-npm run dev:receipts     # receipts UI (default :5176)
+npm run dev                # dashboard + receipts + waiver-viewer in parallel
+npm run dev:dashboard      # operator dashboard (default :5174)
+npm run dev:receipts       # receipts UI (default :5176)
 npm run dev:waiver-viewer
 npm run build
+npm run test               # receipts + dashboard tests
 npm run test:receipts
+npm run test:dashboard
 ```
 
 The front-ends call the API at `VITE_API_BASE_URL` (default `http://localhost:3001`). Run
@@ -48,7 +63,9 @@ the API from the signup repo (`npm run dev:api` there) when you need live data.
 - Admin calls send `x-admin-key`; viewer calls use Cloudflare Access (no admin key). See
   `docs/frontend-design/README.md`.
 - Money is integer cents; success is `200 { ok:true, ... }`, failure is `{ ok:false, error }`.
-- Reuse `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) for new admin calls.
+- Reuse `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) for new admin calls. The
+  dashboard also has `apps/dashboard/src/lib/admin-api.ts` / `operator-api.ts` — keep
+  envelopes and auth consistent.
 - When the API contract changes (in the signup repo), update `docs/frontend-design/` to match.
 
 ## Migration dependency (heads-up for billing UI)

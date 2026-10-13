@@ -3,6 +3,10 @@
   "install": "npm install",
   "terminals": [
     {
+      "name": "dashboard-dev",
+      "command": "npm run dev:dashboard"
+    },
+    {
       "name": "receipts-dev",
       "command": "npm run dev:receipts"
     }
