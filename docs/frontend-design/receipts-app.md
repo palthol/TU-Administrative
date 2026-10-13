@@ -4,6 +4,9 @@
 tab, exactly which endpoint each control calls so the wiring stays correct as the UI evolves
 (or is rebuilt elsewhere). Endpoint detail is in [`api-reference.md`](./api-reference.md).
 
+**Target IA / visual redesign (design only):** [`receipts-redesign.md`](./receipts-redesign.md).
+Until that ships, this file remains the live wiring map.
+
 ## Shell
 
 - **Header inputs:** `API base` (→ `apiBase`, default `http://localhost:3001`) and

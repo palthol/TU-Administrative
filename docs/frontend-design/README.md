@@ -18,7 +18,8 @@ response shape it should call.
 
 ## How to use these docs when building a screen
 
-1. Open the per-app design doc (e.g. [`receipts-app.md`](./receipts-app.md)).
+1. Prefer a **redesign brief** when one exists (target IA + gates). Use the per-app
+   **endpoint map** for exact request/response wiring.
 2. Find the screen/tab → it lists each action, the endpoint, the request body, the
    success shape, and the error keys.
 3. Cross-check the endpoint in [`api-reference.md`](./api-reference.md) for full
@@ -34,8 +35,10 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 | --- | --- |
 | [`api-reference.md`](./api-reference.md) | The real endpoint contract the admin front-ends call (base URL, auth, envelope, every endpoint). |
 | [`dashboard-redesign.md`](./dashboard-redesign.md) | `apps/dashboard` — operator surface, endpoint map, and release gates. |
-| [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — tab-by-tab → endpoint map (built UI). |
+| [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — current tab-by-tab → endpoint map (built UI). |
+| [`receipts-redesign.md`](./receipts-redesign.md) | `apps/receipts` — target operator finance workspace (design only); includes ObsidianUI decision. |
 | [`waiver-viewer.md`](./waiver-viewer.md) | `apps/waiver-viewer` — viewer surface → endpoint map. |
+| [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md) | `apps/waiver-viewer` — light polish / gap list (design only). |
 
 ## Conventions (apply to every admin call)
 
