@@ -683,9 +683,13 @@ p {
   .record-cards {
     display: grid;
     gap: 0.75rem;
+    padding-bottom: 0.5rem;
   }
   .method-chips {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .method-chips .method-chip:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 
