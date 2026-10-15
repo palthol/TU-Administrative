@@ -38,7 +38,8 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 | [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — current tab-by-tab → endpoint map (built UI). |
 | [`receipts-redesign.md`](./receipts-redesign.md) | `apps/receipts` — operator finance workspace IA + ObsidianUI decision (implemented). |
 | [`waiver-viewer.md`](./waiver-viewer.md) | `apps/waiver-viewer` — viewer surface → endpoint map. |
-| [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md) | `apps/waiver-viewer` — light polish / gap list (design only). |
+| [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md) | `apps/waiver-viewer` — operator IA (implementation brief, not built). |
+| [`waiver-viewer-rework-prompt.md`](./waiver-viewer-rework-prompt.md) | Paste-ready agent prompt to implement that IA. |
 
 ## Conventions (apply to every admin call)
 

@@ -59,3 +59,8 @@ See [cloudflare/README.md](./cloudflare/README.md) for:
   - most recent first
   - participant name alphabetically
 - Expands a card to show participant, waiver, emergency contact, medical, and audit/document details.
+
+Operator rework (not built): [`docs/frontend-design/waiver-viewer-redesign.md`](../../docs/frontend-design/waiver-viewer-redesign.md).
+Implementation prompt: [`docs/frontend-design/waiver-viewer-rework-prompt.md`](../../docs/frontend-design/waiver-viewer-rework-prompt.md).
+
+Local Vite port is **5177** (receipts is 5176).

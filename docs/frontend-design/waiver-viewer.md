@@ -4,7 +4,8 @@
 receipts app, it is **not** gated by the `x-admin-key` in the browser — it sits behind
 **Cloudflare Access** (JWT + email allowlist), and the API enforces that on `/api/viewer/*`.
 
-**Light redesign / gap list (design only):** [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md).
+**Operator redesign (brief, not built):** [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md).
+**Paste-ready implementation prompt:** [`waiver-viewer-rework-prompt.md`](./waiver-viewer-rework-prompt.md).
 
 See `apps/waiver-viewer/cloudflare/README.md` for how to obtain `CF_ACCESS_TEAM_DOMAIN`,
 `CF_ACCESS_AUD`, and the email allowlist. Locally, `WAIVER_VIEWER_DEV_BYPASS=true` skips
