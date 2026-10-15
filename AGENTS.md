@@ -48,11 +48,12 @@ npm install
 npm run dev                # dashboard + receipts + waiver-viewer in parallel
 npm run dev:dashboard      # operator dashboard (default :5174)
 npm run dev:receipts       # receipts UI (default :5176)
-npm run dev:waiver-viewer
+npm run dev:waiver-viewer  # waiver review (default :5177)
 npm run build
-npm run test               # receipts + dashboard tests
+npm run test               # receipts + dashboard + waiver-viewer tests
 npm run test:receipts
 npm run test:dashboard
+npm run test:waiver-viewer
 ```
 
 The front-ends call the API at `VITE_API_BASE_URL` (default `http://localhost:3001`). Run

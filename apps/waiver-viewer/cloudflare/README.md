@@ -99,7 +99,7 @@ cloudflared tunnel run waiver-viewer
 | --- | --- |
 | `VITE_API_BASE_URL` | Optional. Leave unset when API is same-origin (`/api/...`). Set full API URL only for split-host dev. |
 
-Do **not** set `VITE_ADMIN_API_KEY` in production.
+Do not add a browser admin key to this app. Access is the only gate.
 
 ## Phone shortcut
 
@@ -126,7 +126,7 @@ Priority: **important, not urgent.** Check off when done.
 - [ ] **Create DNS alias** — CNAME (or tunnel route) for that hostname → Cloudflare Tunnel or origin.
 - [ ] **Path routing** — `/` → waiver viewer static build; `/api/*` → `services/api` (see `config.yml.example`).
 - [ ] **Confirm URL** — browser can open viewer at `/` and API health at `/api/...` on the **same** hostname.
-- [ ] **Do not** set `VITE_ADMIN_API_KEY` on the viewer build.
+- [ ] Do not add a browser admin key to the viewer build.
 
 ### Cloudflare Zero Trust (Access)
 
@@ -151,7 +151,7 @@ Set these on wherever `services/api` runs (Render, VPS, etc.):
 
 - [ ] `npm run build:waiver-viewer` — deploy `apps/waiver-viewer/dist` to static hosting behind the same hostname.
 - [ ] Leave `VITE_API_BASE_URL` **unset** if viewer and API share one hostname (uses relative `/api/viewer/...`).
-- [ ] Smoke test: log in via GitHub → Load waivers → data appears.
+- [ ] Smoke test: log in via GitHub → the waiver list loads → expand one record. Signed PDFs stay on dashboard People.
 
 ### Phone shortcut
 

@@ -182,7 +182,16 @@ Errors: `not_found` (404), `audit_not_found` (404).
 
 ### `GET /api/viewer/waiver-documents`  (Cloudflare Access, no admin key)
 Same query options as `reporting/views/waiver-documents`; reads `view_waiver_documents`.
-`503` if viewer access not configured; `401` if JWT invalid; `403` if email not allowlisted.
+`503` if viewer access not configured (`viewer_access_not_configured`,
+`viewer_allowlist_not_configured`); `401` if JWT invalid; `403` if email not allowlisted.
+
+The waiver viewer calls this with `credentials: "same-origin"` and only these params:
+`sort` (`signed_at_utc` or `participant_full_name`), `order` (`asc|desc`), `limit=50`,
+`offset`, plus `start` / `end` (`YYYY-MM-DD`) when a date is set. It does not send `q`.
+Search filters the loaded page in the browser. `document_pdf_url` and `signature_image_url`
+on each row are storage paths, not signed URLs. Opening a PDF remains
+`GET /api/admin/waivers/:id` (dashboard, admin key) until the signup repo adds an
+Access-scoped detail route.
 
 ### Notifications (operator-triggered)
 - `POST /api/admin/notifications/discord/payment-reminders` → `{ ok:true, posted:true, rowCount }`
