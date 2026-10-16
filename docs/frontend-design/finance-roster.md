@@ -29,6 +29,14 @@ Class `schedule_templates` (Monday 7:00, and so on) stay on the scheduling API. 
 
 The billing **anchor day** (the 26th, the 29th) and a negotiated household amount are a later payer agreement. They are designed on `TU-api` branch `cursor/custom-household-billing` as `billing_obligations`, and that branch is not merged or deployed. This roster does not invent that agreement.
 
+## Charges and the billing day
+
+On `develop`, a charge is linked to an account and, for subscription billing, to a subscription (`charges.account_id`, `charges.subscription_id`). The period is `coverage_start`, `coverage_end`, and `due_at`. There is no anchor-day column on `subscriptions`.
+
+`generate_monthly_charges` bills an active paid monthly subscription only when `automatic_billing_starts_at` is set. That column means “do not generate before this date.” Null means the generator skips the subscription. The coverage end is the last day of the calendar month that contains `coverage_start`, and `due_at` equals `coverage_start`. The amount is the plan’s catalog `price_cents`. The 26th and 29th in the September script are notes. The generator does not read them.
+
+On the unmerged obligation branch, the anchor day lives on the payer agreement, and the charge points at `charges.billing_obligation_id`. Coverage then runs from one anchor day to the next. That link does not exist on `develop`, and this roster does not create it.
+
 ## Why the current create call is the wrong button
 
 `POST /api/admin/billing/subscriptions` already exists. `front_desk` receives `403`. Owner and finance may call it. The finance workspace must not use it as the roster save until the API can enroll without arming billing.
@@ -197,6 +205,51 @@ The roster picker does not contain a second form. **More options** at the bottom
 
 Owner and finance see the form. Front desk sees “Adding a plan is limited to owner and finance.” and no save control.
 
+## Household cleanup on the roster
+
+The September script’s household step is an operator action on the finance roster, on the account being billed. It is how Natalie is added to William’s account and her empty personal account is deactivated, and the same action works for any later household.
+
+On an account, **Add to this account** searches participants (the existing search, `q` at least 2 characters). The operator picks a person and a role (`member`, `payer`, or `guardian`). If that person already belongs to another account, each other account is listed with its contact name and whether it is financially empty.
+
+**Financially empty** means zero rows in `subscriptions`, `charges`, `payments`, `receipts`, and `personal_finance_entries` for that account. An empty account can be deactivated as part of the same save. An account that has any of those rows stays active; the person can still be added to the household account, and the other account remains the one that holds its money.
+
+The confirmation line is: “Add {person} to {destination} as {role}. Deactivate empty account {source}.” When no source is deactivated: “Add {person} to {destination} as {role}. {source} stays active because it has financial history.”
+
+This does not enroll them and does not create a charge. After the move, the roster row can record a subscription on the destination account with the enroll save.
+
+### `POST /api/admin/billing/household-moves`
+
+```json
+{
+  "participant_id": "uuid",
+  "destination_account_id": "uuid",
+  "role": "member",
+  "deactivate_source_account_id": "uuid optional"
+}
+```
+
+In one transaction:
+
+- The destination account is active.
+- Insert `account_members` when that pair is missing. An existing pair keeps its role.
+- When `deactivate_source_account_id` is set, it is a different account, the person is a member of it, and the five financial counts are zero. Delete that membership, set the account `inactive`, and append a note that names the destination account.
+- When any financial count is non-zero, the whole request fails with `source_account_has_financial_history` and nothing is written.
+
+```ts
+{
+  ok: true,
+  participant_id: string,
+  destination_account_id: string,
+  role: string,
+  membership: 'created' | 'already_present',
+  deactivated_account_id: string | null
+}
+```
+
+Errors: `participant_id_required`, `destination_account_id_required`, `invalid_role`, `destination_account_not_active`, `source_account_required_member`, `source_account_has_financial_history`. `front_desk` is `403`.
+
+The roster member includes `other_accounts: [{ account_id, primary_contact_name, status, financially_empty }]`, so the deactivate choice is visible without a second lookup.
+
 ## Screen → request map (once the API exists)
 
 | Control | Method · endpoint | Body / query | Reads |
@@ -207,6 +260,7 @@ Owner and finance see the form. Front desk sees “Adding a plan is limited to o
 | More options | — | navigates to `#more` | focuses the add-plan panel |
 | Add plan | `POST /api/admin/billing/plans` | name, category, cadence, `price_cents`, `copy_access_from_plan_id` | new plan in the catalog |
 | Save enrollment | `POST /api/admin/billing/subscriptions` | fields above, both flags `false` | person + plan on the row |
+| Add to this account | `POST /api/admin/billing/household-moves` | `participant_id`, `destination_account_id`, `role`, optional `deactivate_source_account_id` | membership on the destination; empty source deactivated when requested |
 
 Failed saves keep the form. `401` locks the workspace, same as the other finance panels.
 
@@ -214,17 +268,17 @@ Failed saves keep the form. `401` locks the workspace, same as the other finance
 
 - No call to `POST /api/admin/billing/generate-monthly-charges`.
 - No initial charge, no catalog-price debt, no automatic billing date.
-- No household account merge and no deactivation of a superseded account. That part of the September script stays a reviewed data fix if it is still needed.
 - No class-template assignment.
 - No edit of an enrollment that is already active.
+- Household cleanup adds a person to an account and can deactivate a different account only when that account has no subscriptions, charges, payments, receipts, or personal-finance rows. It does not move those rows, and it does not merge two participant records into one.
 - Personal cash and invoice behavior stays as documented in [`receipts-app.md`](./receipts-app.md).
 
 Formal still collects only charges that already exist. After this roster, those charges still have to be issued by a payer agreement that can store an anchor day and an agreed amount. That agreement is the obligation model on `cursor/custom-household-billing`. Merging and deploying it is a separate `TU-api` decision. Until then, the finance workspace can say who is on which plan, and it still must not pretend the catalog price is the amount due.
 
 ## Build order
 
-1. **TU-api `develop`.** Roster read, plan read, plan create (with copied entitlements), `arm_automatic_billing: false`, overlap rejection. Tests: paid monthly enroll with both flags false writes a subscription, writes no charge, leaves `automatic_billing_starts_at` null, and a second overlapping enroll fails. Plan create writes one `plan_definitions` row and the same entitlement rows as the source plan, and enrolls nobody. Omitting the new enroll flag still sets the automation date, so existing callers stay stable.
-2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster` and the More add-plan panel, with **More options** on the picker opening that panel. Owner/finance can save. Front desk sees the role limit.
+1. **TU-api `develop`.** Roster read, plan read, plan create (with copied entitlements), household move, `arm_automatic_billing: false`, overlap rejection. Tests: paid monthly enroll with both flags false writes a subscription, writes no charge, leaves `automatic_billing_starts_at` null, and a second overlapping enroll fails. Plan create writes one `plan_definitions` row and the same entitlement rows as the source plan, and enrolls nobody. A household move onto an active account deactivates a source only when the five financial counts are zero, and leaves both accounts unchanged when they are not. Omitting the new enroll flag still sets the automation date, so existing callers stay stable.
+2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster`, household cleanup on the account, and the More add-plan panel, with **More options** on the picker opening that panel. Owner/finance can save. Front desk sees the role limit.
 3. **Operator pass.** Mark each current member from the roster. Leave `chore/subscription-backfill-2026-09` unrun.
 4. **Later.** Payer schedule (amount + anchor) from the obligation design, then an explicit activate step that issues the period charge Formal already knows how to collect.
 
@@ -235,6 +289,7 @@ Formal still collects only charges that already exist. After this roster, those 
 - **More options** on the picker opens the add-plan panel on More.
 - Add plan sends `copy_access_from_plan_id` and shows the confirmation that nobody is enrolled.
 - Enrollment save sends `create_initial_charge: false` and `arm_automatic_billing: false` and shows the confirmation before the request.
+- Household cleanup can deactivate a source account only when the roster marks it financially empty, and the confirmation names the person and both accounts.
 - A member who already has an active subscription cannot be enrolled again from this screen.
 - `front_desk` sees the role limit and no save control.
 - `npm run test:receipts` covers the request body and the confirmation copy. `npm run build:receipts` passes.
