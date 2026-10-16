@@ -37,7 +37,7 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 | [`dashboard-redesign.md`](./dashboard-redesign.md) | `apps/dashboard` — operator surface, endpoint map, and release gates. |
 | [`receipts-app.md`](./receipts-app.md) | `apps/receipts` — current tab-by-tab → endpoint map (built UI). |
 | [`receipts-redesign.md`](./receipts-redesign.md) | `apps/receipts` — operator finance workspace IA + ObsidianUI decision (implemented). |
-| [`finance-roster.md`](./finance-roster.md) | `apps/receipts` — proposed account roster, plan add from More, and household cleanup, without arming billing. |
+| [`finance-roster.md`](./finance-roster.md) | `apps/receipts` — proposed roster: plan, expected pay date, manual charge, then Formal. |
 | [`waiver-viewer.md`](./waiver-viewer.md) | `apps/waiver-viewer` — viewer surface → endpoint map (implemented). |
 | [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md) | `apps/waiver-viewer` — phone-first operator UI (implemented). |
 

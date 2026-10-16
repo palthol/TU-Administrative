@@ -8,7 +8,7 @@ This is the next finance-workspace slice on `develop`. It replaces the unrun pro
 
 `apps/receipts` already logs cash, drafts invoices, and records a formal payment against an existing charge. Formal’s payment board only lists charges that already exist. Those charges are produced from subscriptions. Production subscriptions were never backfilled, so the board has nothing to collect for the current members.
 
-The September script inserts three active subscriptions and leaves `automatic_billing_starts_at` null. It also moves one household member onto a shared account. It has not been executed. A roster in the finance workspace records the same enrollment fact for every account, one person at a time, without a SQL review.
+The September script inserts three active subscriptions and leaves `automatic_billing_starts_at` null. It also moves one household member onto a shared account. It has not been executed. The roster replaces that script: from an account, pick a plan, set the expected pay date, and later issue one charge by hand when that date is near. Formal already records the payment that satisfies the charge.
 
 ## What “schedule” means here
 
@@ -27,15 +27,22 @@ Catalog rows come from `TU-api` `supabase/seed.sql`. The screen loads whatever i
 
 Class `schedule_templates` (Monday 7:00, and so on) stay on the scheduling API. Assigning a class night does not create a subscription or a charge.
 
-The billing **anchor day** (the 26th, the 29th) and a negotiated household amount are a later payer agreement. They are designed on `TU-api` branch `cursor/custom-household-billing` as `billing_obligations`, and that branch is not merged or deployed. This roster does not invent that agreement.
+The date you set on the roster is `expected_pay_on`. It is the day you want to be reminded to issue a charge. It is not `automatic_billing_starts_at`, and it does not by itself create money owed. A negotiated amount for one period is typed in when you issue the charge. Automatic recurring agreements remain the unmerged obligation design on `cursor/custom-household-billing`.
 
 ## Charges and the billing day
 
-On `develop`, a charge is linked to an account and, for subscription billing, to a subscription (`charges.account_id`, `charges.subscription_id`). The period is `coverage_start`, `coverage_end`, and `due_at`. There is no anchor-day column on `subscriptions`.
+Two dates do different jobs.
 
-`generate_monthly_charges` bills an active paid monthly subscription only when `automatic_billing_starts_at` is set. That column means “do not generate before this date.” Null means the generator skips the subscription. The coverage end is the last day of the calendar month that contains `coverage_start`, and `due_at` equals `coverage_start`. The amount is the plan’s catalog `price_cents`. The 26th and 29th in the September script are notes. The generator does not read them.
+| Date | Where it lives | What it does |
+| --- | --- | --- |
+| Expected pay date | Subscription field `expected_pay_on`, set and changed on the roster | “Remind me to issue a charge around this day.” |
+| Charge due date | `charges.due_at` | “This amount is owed on this day.” Formal and the existing Discord due-soon list read this. |
 
-On the unmerged obligation branch, the anchor day lives on the payer agreement, and the charge points at `charges.billing_obligation_id`. Coverage then runs from one anchor day to the next. That link does not exist on `develop`, and this roster does not create it.
+On `develop` today, subscriptions have no expected-pay field. `view_member_payment_board.next_due_date` is the latest non-void charge’s `due_at`. `view_member_payment_reminders` keeps rows only when that date is today, overdue, or inside the next 3 days. A person with a plan and no charge has a null due date and is left out of the reminder. That is why opening the finance workspace cannot yet tell you a cycle is coming.
+
+`automatic_billing_starts_at` is a third, different field. It means “the monthly generator may create charges on its own from this date.” Null means the generator skips the subscription. The generator then uses a calendar month and the catalog price. The roster leaves it null. Issuing a charge by hand does not set it.
+
+The enroll save records the person, the plan, and `expected_pay_on`. It does not insert a charge. The charge is a second button, **Issue charge**, used when the date is near. That split is what “the roster save does not emit the charge” means: one save would both enroll them and invent money, and the only enroll route that invents money today also arms the calendar-month generator. Issue charge is the GUI action that creates the one charge you then collect.
 
 ## Why the current create call is the wrong button
 
@@ -59,15 +66,19 @@ New hash destination `#roster`. Desktop rail includes it. Phone reaches it from 
 1. Unlock as today (`GET /api/admin/auth/me`). Owner and finance can enroll. `front_desk` may open the workspace; a `403` on the roster reads as “Subscriptions are limited to owner and finance.”
 2. Load a page of accounts. Each account shows its contact name, status, and members.
 3. For each member, the row shows whether an active subscription exists.
-4. When it does, the row shows plan name, cadence, catalog price, start date, and whether automatic billing is off.
-5. When it does not, the operator turns on **Has a subscription**, picks a plan, sets a start date (default today), and saves that one person.
+4. When it does, the row shows plan name, catalog price, and the expected pay date, plus any open charge and its due date.
+5. When it does not, the operator turns on **Has a subscription**, picks a plan, sets the expected pay date, and saves that one person. Membership start defaults to today and stays editable.
 6. The plan picker ends with **More options**. That opens More, on the add-plan panel. After a plan is saved, the roster picker includes it.
-7. The confirmation line is: “This records {name} on {plan} starting {date}. No charge is created. Automatic billing stays off.”
-8. Success copy names the person and the plan. The technical subscription id stays behind Details.
+7. The enroll confirmation is: “{name} is on {plan}. Expected pay date {date}. No charge is issued yet.”
+8. **Coming due** lists subscriptions whose expected pay date is within 7 days, or already past, and that do not yet have an open charge for that date. The same rows are added to the Discord payment-reminder post, labeled as “issue a charge,” separate from charges that are already due.
+9. **Issue charge** asks for the amount (catalog price filled in, editable) and the due date (expected pay date filled in). The operator confirms the next expected pay date, defaulting to the same day next month. The save inserts one charge and stores that next date. Automatic billing stays off.
+10. Formal’s payment board then shows the charge, because `next_due_date` is `charges.due_at`. Record payment works as it does today.
+
+Changing the expected pay date is a separate save on the row. It updates `expected_pay_on` only. A charge already issued keeps its due date.
 
 One account can hold several members. Each member gets their own subscription on that account. The household case is two saves on one account, not one account-level switch.
 
-An existing active subscription is shown and left unchanged. Plan changes, pauses, cancels, and prorated upgrades stay out of this screen. `POST /api/admin/billing/subscription-upgrade` writes a prorated catalog charge, which is the wrong tool for a baseline correction.
+An existing active subscription stays on its plan. The operator can change the expected pay date and issue the next charge. Plan changes, pauses, cancels, and prorated upgrades stay out of this screen. `POST /api/admin/billing/subscription-upgrade` writes a prorated catalog charge, which is the wrong tool for a baseline correction.
 
 ## Proposed API (TU-api `develop` first)
 
@@ -100,7 +111,14 @@ Query: `limit` (default 50, max 200), `offset` (default 0), `status` (`active` d
         price_cents: number,
         starts_at: string,          // YYYY-MM-DD
         ends_at: string | null,
-        automatic_billing_starts_at: string | null
+        expected_pay_on: string | null, // YYYY-MM-DD
+        automatic_billing_starts_at: string | null,
+        open_charge: null | {
+          charge_id: string,
+          amount_cents: number,
+          due_at: string,
+          status: string
+        }
       }
     }]
   }]
@@ -138,6 +156,7 @@ Keep `POST /api/admin/billing/subscriptions`. Add one field and one guard. Curre
   "plan_definition_id": "uuid",
   "account_id": "uuid",
   "starts_at": "YYYY-MM-DD",
+  "expected_pay_on": "YYYY-MM-DD",
   "create_initial_charge": false,
   "arm_automatic_billing": false,
   "notes": "optional"
@@ -153,7 +172,55 @@ Roster rules the API enforces:
 - A second active subscription whose dates overlap this participant is rejected (`overlapping_active_subscription`). A double-click or a stale page cannot insert two actives.
 - Response stays the current envelope, with `initial_charge_id: null` and `automatic_billing_starts_at: null`.
 
-`arm_automatic_billing` omitted means the current paid-monthly behavior: set the automation date to the day after calendar-month end. The roster always sends `false`.
+`arm_automatic_billing` omitted means the current paid-monthly behavior: set the automation date to the day after calendar-month end. The roster always sends `false`. The roster always sends `expected_pay_on`. Callers that omit it keep today’s behavior and store null.
+
+### `PATCH /api/admin/billing/subscriptions/:subscriptionId`
+
+Changes the expected pay date.
+
+```json
+{ "expected_pay_on": "YYYY-MM-DD" }
+```
+
+Response: `{ "ok": true, "subscription_id", "expected_pay_on" }`.
+
+The update writes that column only. Existing charges keep `due_at`. `automatic_billing_starts_at` stays whatever it was; the roster never sends a value that sets it. Errors: `subscription_not_found`, `invalid_expected_pay_on`. `front_desk` is `403`.
+
+### `POST /api/admin/billing/charges`
+
+Issues one charge by hand for one subscription. This is the GUI action that was missing. It does not call `generate_monthly_charges` and does not set `automatic_billing_starts_at`.
+
+```json
+{
+  "account_id": "uuid",
+  "subscription_id": "uuid",
+  "amount_cents": 15000,
+  "due_at": "YYYY-MM-DD",
+  "coverage_start": "YYYY-MM-DD",
+  "coverage_end": "YYYY-MM-DD",
+  "next_expected_pay_on": "YYYY-MM-DD"
+}
+```
+
+The charge’s account must match the subscription’s account. `amount_cents` is a positive integer the operator confirmed (the screen prefills the catalog price). `due_at` is the date they are collecting for. `coverage_start` defaults to `due_at` when omitted. `coverage_end` defaults to the day before `next_expected_pay_on`. `next_expected_pay_on` is stored on the subscription after the charge insert succeeds, in the same transaction.
+
+```ts
+{
+  ok: true,
+  charge_id: string,
+  account_id: string,
+  subscription_id: string,
+  amount_cents: number,
+  due_at: string,
+  expected_pay_on: string
+}
+```
+
+Errors: `subscription_not_found`, `charge_account_mismatch`, `invalid_amount_cents`, `invalid_due_at`, `invalid_expected_pay_on`, `coverage_end_before_start`. `front_desk` is `403`.
+
+### Coming due, including Discord
+
+`POST /api/admin/notifications/discord/payment-reminders` keeps its current charge section (unpaid charges due within 3 days or overdue). It adds a second section, `issue_charge`, for active subscriptions whose `expected_pay_on` is on or before today+7 and that have no open charge with that `due_at`. Response adds `issueChargeCount` beside the existing `rowCount`. The daily digest includes the same section. The roster **Coming due** list is that same set, loaded from the roster payload in the browser, so the workspace shows it even when Discord is unconfigured.
 
 ### `POST /api/admin/billing/plans`
 
@@ -259,28 +326,29 @@ The roster member includes `other_accounts: [{ account_id, primary_contact_name,
 | Load plans | `GET /api/admin/billing/plans?active=true` | — | picker options, and the “Same access as” select |
 | More options | — | navigates to `#more` | focuses the add-plan panel |
 | Add plan | `POST /api/admin/billing/plans` | name, category, cadence, `price_cents`, `copy_access_from_plan_id` | new plan in the catalog |
-| Save enrollment | `POST /api/admin/billing/subscriptions` | fields above, both flags `false` | person + plan on the row |
+| Save enrollment | `POST /api/admin/billing/subscriptions` | fields above, both flags `false`, plus `expected_pay_on` | person, plan, and expected pay date. No charge. |
+| Change expected pay date | `PATCH /api/admin/billing/subscriptions/:id` | `{ expected_pay_on }` | the date on the row. Existing charges keep `due_at`. |
+| Issue charge | `POST /api/admin/billing/charges` | `account_id`, `subscription_id`, `amount_cents`, `due_at`, `next_expected_pay_on` | `charge_id`. Formal’s board can select it. |
 | Add to this account | `POST /api/admin/billing/household-moves` | `participant_id`, `destination_account_id`, `role`, optional `deactivate_source_account_id` | membership on the destination; empty source deactivated when requested |
 
 Failed saves keep the form. `401` locks the workspace, same as the other finance panels.
 
 ## What this screen leaves alone
 
-- No call to `POST /api/admin/billing/generate-monthly-charges`.
-- No initial charge, no catalog-price debt, no automatic billing date.
+- No call to `POST /api/admin/billing/generate-monthly-charges`. Enrollment and issue-charge both leave `automatic_billing_starts_at` null.
+- The enroll save inserts no charge. **Issue charge** is the only roster action that inserts one, for the amount and due date the operator confirmed.
 - No class-template assignment.
-- No edit of an enrollment that is already active.
+- Plan changes, pauses, cancels, and prorated upgrades stay off this screen. The expected pay date on an active subscription can be changed.
 - Household cleanup adds a person to an account and can deactivate a different account only when that account has no subscriptions, charges, payments, receipts, or personal-finance rows. It does not move those rows, and it does not merge two participant records into one.
 - Personal cash and invoice behavior stays as documented in [`receipts-app.md`](./receipts-app.md).
 
-Formal still collects only charges that already exist. After this roster, those charges still have to be issued by a payer agreement that can store an anchor day and an agreed amount. That agreement is the obligation model on `cursor/custom-household-billing`. Merging and deploying it is a separate `TU-api` decision. Until then, the finance workspace can say who is on which plan, and it still must not pretend the catalog price is the amount due.
+Formal still collects a charge that already exists. After **Issue charge**, that charge is on the payment board and Record payment works unchanged. The amount is whatever was confirmed, so a period can differ from the catalog price. The unmerged obligation model remains the design for automatic recurring amounts. This loop does not depend on it.
 
 ## Build order
 
-1. **TU-api `develop`.** Roster read, plan read, plan create (with copied entitlements), household move, `arm_automatic_billing: false`, overlap rejection. Tests: paid monthly enroll with both flags false writes a subscription, writes no charge, leaves `automatic_billing_starts_at` null, and a second overlapping enroll fails. Plan create writes one `plan_definitions` row and the same entitlement rows as the source plan, and enrolls nobody. A household move onto an active account deactivates a source only when the five financial counts are zero, and leaves both accounts unchanged when they are not. Omitting the new enroll flag still sets the automation date, so existing callers stay stable.
-2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster`, household cleanup on the account, and the More add-plan panel, with **More options** on the picker opening that panel. Owner/finance can save. Front desk sees the role limit.
-3. **Operator pass.** Mark each current member from the roster. Leave `chore/subscription-backfill-2026-09` unrun.
-4. **Later.** Payer schedule (amount + anchor) from the obligation design, then an explicit activate step that issues the period charge Formal already knows how to collect.
+1. **TU-api `develop`.** Roster read including `expected_pay_on` and `open_charge`, plan read, plan create, household move, enroll with `expected_pay_on` and both flags false, patch expected pay date, manual charge issue, and the Discord `issue_charge` section. Tests: enroll writes no charge and leaves `automatic_billing_starts_at` null. Patching the date leaves existing `charges.due_at` unchanged. Issue charge inserts one charge, stores `next_expected_pay_on`, and still leaves automatic billing null. A person with only an expected pay date is absent from the old 3-day charge reminder and present in `issue_charge` inside the 7-day window.
+2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster` with Coming due, change date, and Issue charge, plus household cleanup and the More add-plan panel. Owner/finance can save. Front desk sees the role limit.
+3. **Operator pass.** Set each member’s plan and expected pay date. Issue a charge when Coming due says so, then record the formal payment. Leave `chore/subscription-backfill-2026-09` unrun.
 
 ## Acceptance for the UI PR
 
@@ -288,7 +356,10 @@ Formal still collects only charges that already exist. After this roster, those 
 - The plan picker is the active catalog from the API, with cadence and catalog price visible.
 - **More options** on the picker opens the add-plan panel on More.
 - Add plan sends `copy_access_from_plan_id` and shows the confirmation that nobody is enrolled.
-- Enrollment save sends `create_initial_charge: false` and `arm_automatic_billing: false` and shows the confirmation before the request.
+- Enrollment save sends `expected_pay_on`, `create_initial_charge: false`, and `arm_automatic_billing: false`. The confirmation says no charge is issued yet.
+- Changing the expected pay date sends only `expected_pay_on`.
+- Issue charge sends the confirmed amount, due date, and next expected pay date, and the new charge can be selected on Formal.
+- Coming due lists an expected pay date inside 7 days when no open charge exists for it.
 - Household cleanup can deactivate a source account only when the roster marks it financially empty, and the confirmation names the person and both accounts.
 - A member who already has an active subscription cannot be enrolled again from this screen.
 - `front_desk` sees the role limit and no save control.
