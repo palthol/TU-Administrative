@@ -4,7 +4,7 @@ Responsive operator workspace using the existing React/Vite/Tailwind/Radix stack
 
 Current release: **read-only Phase 1 interim slice**. Today, People, Billing, Classes,
 and More replace the analysis-first console navigation. Search participants and explicitly
-select a linked payer; page through waivers and refresh signed PDF links; view a New York
+select a linked payer; page through waivers and open a reading-copy PDF; view a New York
 local-day agenda and saved attendance summaries; review defined monthly metrics,
 receivables, expenses, inquiries and curated reports.
 

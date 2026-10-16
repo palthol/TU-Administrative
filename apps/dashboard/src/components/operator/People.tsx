@@ -11,6 +11,13 @@ import {
 } from "@/lib/operator";
 import { readAdmin } from "@/lib/operator-api";
 import {
+  composeWaiverPdf,
+  findWaiverRecord,
+  presentWaiverPdfError,
+  readSignaturePng,
+  sourceFromRecord,
+} from "@/lib/waiver-pdf";
+import {
   Limitation,
   Panel,
   ReadStatus,
@@ -343,7 +350,8 @@ function WaiverDocument({
   onClose: () => void;
 }) {
   const state = useEndpoint<{
-    documentPdfUrl?: string;
+    signatureUrl?: string;
+    documentSha256?: string;
     content_version?: string;
     locale?: string;
   }>(
@@ -351,7 +359,12 @@ function WaiverDocument({
     `/api/admin/waivers/${encodeURIComponent(String(row.waiver_id))}`,
   );
   const [expired, setExpired] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdf, setPdf] = useState<{ url: string; filename: string } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const openAbort = useRef<AbortController | null>(null);
+  const pdfUrl = useRef<string | null>(null);
   useEffect(() => {
     heading.current?.focus();
   }, []);
@@ -361,6 +374,70 @@ function WaiverDocument({
     const timer = setTimeout(() => setExpired(true), 5 * 60 * 1000);
     return () => clearTimeout(timer);
   }, [state.refreshed]);
+  useEffect(
+    () => () => {
+      openAbort.current?.abort();
+      if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current);
+    },
+    [],
+  );
+  const canOpen = Boolean(
+    state.data?.signatureUrl && !expired && !state.error && !state.loading && !opening,
+  );
+  async function openSignedPdf() {
+    const signatureUrl = state.data?.signatureUrl;
+    if (!signatureUrl || expired) return;
+    const popup = window.open("", "_blank");
+    const controller = new AbortController();
+    openAbort.current?.abort();
+    openAbort.current = controller;
+    setOpening(true);
+    setPdfError(null);
+    try {
+      const record = await findWaiverRecord(
+        (path) =>
+          readAdmin<{ rows?: Record<string, unknown>[] }>(
+            connection.apiBase,
+            connection.adminKey,
+            path,
+            controller.signal,
+          ),
+        String(row.waiver_id),
+        row.signed_at_utc,
+      );
+      const signaturePng = await readSignaturePng(signatureUrl, controller.signal);
+      const composed = await composeWaiverPdf(
+        sourceFromRecord(record, {
+          signaturePng,
+          locale: state.data?.locale,
+          contentVersion: state.data?.content_version,
+          documentSha256: state.data?.documentSha256,
+        }),
+      );
+      if (controller.signal.aborted) {
+        popup?.close();
+        return;
+      }
+      const pdfBytes = new Uint8Array(composed.bytes.byteLength);
+      pdfBytes.set(composed.bytes);
+      const url = URL.createObjectURL(
+        new Blob([pdfBytes], { type: "application/pdf" }),
+      );
+      const filename = `waiver-${String(row.waiver_id).replace(/[^a-zA-Z0-9._-]/g, "") || "document"}.pdf`;
+      if (pdfUrl.current) URL.revokeObjectURL(pdfUrl.current);
+      pdfUrl.current = url;
+      setPdf({ url, filename });
+      if (popup && !popup.closed) popup.location.href = url;
+      else popup?.close();
+    } catch (error) {
+      popup?.close();
+      if (controller.signal.aborted) return;
+      const message = presentWaiverPdfError(error);
+      if (message) setPdfError(message);
+    } finally {
+      if (!controller.signal.aborted) setOpening(false);
+    }
+  }
   return (
     <section className="document-detail" aria-label="Selected waiver document">
       <h3 ref={heading} tabIndex={-1}>
@@ -371,23 +448,31 @@ function WaiverDocument({
         {state.data?.content_version || "not returned"} ·{" "}
         {state.data?.locale || "Locale not returned"}
       </p>
+      <p className="muted text-xs">
+        Open signed PDF builds a reading copy from the signed waiver record. The
+        archived file and its audit hash stay as stored.
+      </p>
       <ReadStatus state={state} />
-      {state.data?.documentPdfUrl &&
-        !expired &&
-        !state.error &&
-        !state.loading && (
-          <a
-            className="operator-link"
-            href={state.data.documentPdfUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open signed PDF ↗
+      {canOpen && (
+        <Button type="button" variant="outline" onClick={() => void openSignedPdf()}>
+          Open signed PDF
+        </Button>
+      )}
+      {opening && <p role="status">Preparing the signed document…</p>}
+      {pdfError && (
+        <p role="alert">{pdfError}</p>
+      )}
+      {pdf && (
+        <>
+          <iframe className="pdf-preview" title="Signed waiver PDF" src={pdf.url} />
+          <a className="operator-link" href={pdf.url} download={pdf.filename}>
+            Download signed PDF
           </a>
-        )}
-      {expired && (
+        </>
+      )}
+      {expired && !pdf && (
         <p role="status">
-          This document link has expired. Refresh it to open the PDF.
+          This signature link has expired. Refresh it to open the PDF.
         </p>
       )}
       <div className="actions">
@@ -402,10 +487,10 @@ function WaiverDocument({
           Close document
         </Button>
       </div>
-      {!state.loading && state.data && !state.data.documentPdfUrl && (
-        <p>
-          Stored document unavailable. Use the separate waiver review tool to
-          investigate.
+      {!state.loading && state.data && !state.data.signatureUrl && (
+        <p role="alert">
+          The signature image link was not returned, so the signed document was
+          not opened.
         </p>
       )}
     </section>

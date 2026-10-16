@@ -506,6 +506,14 @@ p {
   gap: 1rem;
   border-radius: 0.5rem;
 }
+.pdf-preview {
+  width: 100%;
+  height: min(70vh, 720px);
+  min-height: 280px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: #fff;
+}
 .operator-link {
   display: inline-flex;
   align-items: center;

@@ -51,7 +51,7 @@ The collapsed card shows name, signed time, email/phone when present, and three 
 
 ## Signed PDF (signup repo, not this app)
 
-Dashboard People signs a PDF with `GET /api/admin/waivers/:id` and `x-admin-key`. This viewer does not call that route. Signed PDFs stay on dashboard People.
+Dashboard People prepares a reading copy with `GET /api/admin/waivers/:id` (`signatureUrl`) and `GET /api/admin/reporting/views/waiver-documents`. It does not open the stored `documentPdfUrl`. This viewer does not call the detail route. Signed PDFs stay on dashboard People.
 
 | Action | Method · Endpoint | Auth | Returns |
 | --- | --- | --- | --- |
