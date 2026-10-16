@@ -284,7 +284,20 @@ async function verify(width) {
     });
   }
 
+  const search = page.getByLabel("Find a participant", { exact: false });
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Today",
+  );
+  const nav =
+    width >= 1024
+      ? page.getByRole("navigation", { name: "Main navigation" })
+      : page.getByRole("navigation", { name: "Mobile navigation" });
+  await nav.getByRole("link", { name: "People", exact: true }).click();
+  await page.getByRole("heading", { name: "People", exact: true }).waitFor();
   const input = page.getByLabel("Find a participant", { exact: false });
+  await input.waitFor();
   await input.fill("c");
   await page.waitForTimeout(300);
   assert(!requests.some((url) => url.searchParams.get("q") === "c"));
@@ -320,6 +333,11 @@ async function verify(width) {
     .first()
     .click();
   await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Billing",
+  );
   const overview = page
     .locator(".operator-panel")
     .filter({
@@ -334,11 +352,9 @@ async function verify(width) {
         ?.querySelector(".large-amount")?.textContent === "$100.00",
   );
   assert.equal(await overview.getByText("$200.00", { exact: true }).count(), 0);
-  const nav =
-    width >= 1024
-      ? page.getByRole("navigation", { name: "Main navigation" })
-      : page.getByRole("navigation", { name: "Mobile navigation" });
   await nav.getByRole("link", { name: "People", exact: true }).click();
+  await input.waitFor();
+  assert.equal(await input.inputValue(), "Casey");
   await page.getByLabel("Only [TU-TEST] Casey Ray on this loaded page").check();
   await page
     .getByRole("button", { name: "View document", exact: true })
@@ -400,16 +416,45 @@ async function verify(width) {
       )
       .getByRole("link", { name, exact: true })
       .click();
+    await page
+      .getByRole("heading", {
+        name: name === "Today" ? "At the desk" : name,
+        exact: true,
+        level: 1,
+      })
+      .waitFor();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1,
     );
     assert.equal(overflow, false, `${name} overflows at ${width}px`);
+    assert.equal(
+      await search.isVisible(),
+      name === "People",
+      `Find a participant visibility on ${name}`,
+    );
+    if (output && width === 1440) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({
+        path: `${output}/${name.toLowerCase()}-1440.png`,
+        fullPage: false,
+      });
+    }
   }
   await page.goBack();
+  await page
+    .getByRole("heading", { name: "Classes", exact: true, level: 1 })
+    .waitFor();
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Classes",
+  );
+  await nav.getByRole("link", { name: "People", exact: true }).click();
+  await input.waitFor();
   assert.equal(
     await input.inputValue(),
     "Casey",
-    "Search state survives browser Back",
+    "Search state survives leaving People",
   );
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "200%";

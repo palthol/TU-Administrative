@@ -292,22 +292,22 @@ function Workspace({
             </div>
             <span className="release-badge">Read-only interim release</span>
           </div>
-          <ParticipantLookup
-            connection={connection}
-            query={query}
-            setQuery={setQuery}
-            selected={participant}
-            onSelect={(p) => {
-              setParticipant(p);
-              setPayer(null);
-              go("People");
-            }}
-            onPayer={(account) => {
-              setPayer(account);
-              go("Billing");
-            }}
-            showHelp={nav === "People"}
-          />
+          {nav === "People" && (
+            <ParticipantLookup
+              connection={connection}
+              query={query}
+              setQuery={setQuery}
+              selected={participant}
+              onSelect={(p) => {
+                setParticipant(p);
+                setPayer(null);
+              }}
+              onPayer={(account) => {
+                setPayer(account);
+                go("Billing");
+              }}
+            />
+          )}
           {visited.includes("Today") && (
             <div hidden={nav !== "Today"}>
               <Today
