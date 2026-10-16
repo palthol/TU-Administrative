@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { WaiverList } from './components/WaiverList';
 import type { WaiverDocument, WaiverListResponse } from './lib/types';
 import {
+  AUTH_ME_PATH,
   PAGE_SIZE,
+  SESSION_EXPIRED_EVENT,
   UNAVAILABLE_MESSAGE,
   ViewerRequestError,
+  adminFetch,
+  getDefaultApiBase,
+  isSupportedStaff,
   queryForSort,
   viewerFetch,
   type SortMode,
+  type Staff,
 } from './lib/viewer-api';
 import { filterLoadedPage } from './lib/waiver-record';
 
@@ -22,6 +28,135 @@ function useDebounced(value: string, delayMs: number) {
 }
 
 export default function App() {
+  const [apiBase, setApiBase] = useState(getDefaultApiBase);
+  const [draftKey, setDraftKey] = useState('');
+  const [session, setSession] = useState<{ key: string; staff: Staff } | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const loginAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const lock = () => {
+      loginAbort.current?.abort();
+      setSession(null);
+      setDraftKey('');
+      setLoading(false);
+      setError('Session expired. Unlock to continue.');
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, lock);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, lock);
+      loginAbort.current?.abort();
+    };
+  }, []);
+
+  async function unlock(event: FormEvent) {
+    event.preventDefault();
+    if (loading || !draftKey.trim()) return;
+    const key = draftKey.trim();
+    const controller = new AbortController();
+    loginAbort.current = controller;
+    setLoading(true);
+    setError('');
+    try {
+      const { ok, status, data } = await adminFetch<{ ok?: boolean; staff?: Staff; error?: string }>(
+        apiBase,
+        key,
+        AUTH_ME_PATH,
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
+      if (!ok || !data.staff) {
+        if (status === 401) throw new Error('That key was not accepted.');
+        if (status === 403) throw new Error('Your staff role cannot access waivers.');
+        throw new Error(data.error || `Unable to unlock (HTTP ${status}).`);
+      }
+      if (!isSupportedStaff(data.staff)) {
+        throw new Error('The API did not return a supported staff identity.');
+      }
+      setSession({ key, staff: data.staff });
+      setDraftKey('');
+    } catch (caught) {
+      if (!controller.signal.aborted) {
+        setError(caught instanceof Error ? caught.message : 'Unable to unlock.');
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }
+
+  if (!session) {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Waiver review</h1>
+          <p className="muted">See who signed and what’s missing.</p>
+          <form onSubmit={unlock} className="stack">
+            <label htmlFor="api-base">API base</label>
+            <input
+              id="api-base"
+              type="url"
+              required
+              value={apiBase}
+              onChange={(event) => setApiBase(event.target.value)}
+              disabled={loading}
+            />
+            <label htmlFor="staff-key">Staff key</label>
+            <input
+              id="staff-key"
+              type="password"
+              autoComplete="off"
+              required
+              value={draftKey}
+              onChange={(event) => setDraftKey(event.target.value)}
+              disabled={loading}
+              aria-describedby="key-help"
+            />
+            <p id="key-help" className="muted text-sm">
+              Your key stays in memory and clears on lock or reload. Use your personal staff key,
+              or the existing trusted operator key.
+            </p>
+            <button className="primary-button" disabled={loading || !draftKey.trim()}>
+              {loading ? 'Checking identity…' : 'Unlock workspace'}
+            </button>
+            {error ? (
+              <p role="alert" className="error-message">
+                {error}
+              </p>
+            ) : null}
+          </form>
+          <p className="release-note">Phone-first waiver review</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <WaiverWorkspace
+      apiBase={apiBase}
+      adminKey={session.key}
+      staff={session.staff}
+      onLock={() => {
+        setSession(null);
+        setDraftKey('');
+        setError('');
+      }}
+    />
+  );
+}
+
+function WaiverWorkspace({
+  apiBase,
+  adminKey,
+  staff,
+  onLock,
+}: {
+  apiBase: string;
+  adminKey: string;
+  staff: Staff;
+  onLock: () => void;
+}) {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [offset, setOffset] = useState(0);
   const [start, setStart] = useState('');
@@ -49,6 +184,8 @@ export default function App() {
 
     try {
       const data = await viewerFetch<WaiverListResponse>(
+        apiBase,
+        adminKey,
         queryForSort(sortMode, offset, start, end),
         { signal: controller.signal },
       );
@@ -71,7 +208,7 @@ export default function App() {
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
-  }, [end, offset, sortMode, start]);
+  }, [adminKey, apiBase, end, offset, sortMode, start]);
 
   useEffect(() => {
     void load();
@@ -88,11 +225,20 @@ export default function App() {
   const showNoRows = hasPage && !error && rows.length === 0;
   const showNoMatches = hasPage && rows.length > 0 && visibleRows.length === 0;
   const nextDisabled = loading || Boolean(error) || rows.length < PAGE_SIZE;
+  const roleLabel = staff.role.replaceAll('_', ' ');
 
   return (
     <main className="app-shell">
       <header className="page-header">
-        <h1>Waivers</h1>
+        <div className="header-row">
+          <h1>Waivers</h1>
+          <button type="button" className="secondary-button" onClick={onLock}>
+            Lock
+          </button>
+        </div>
+        <p className="staff-line">
+          {staff.display_name} · {roleLabel}
+        </p>
         <p>Review who signed and what’s missing.</p>
       </header>
 

@@ -8,13 +8,13 @@ backend** — the deployed API and Supabase schema live in the `temple undergrou
 | --- | --- | --- |
 | `apps/dashboard` | Analysis views + admin API consoles (merge, billing, waivers, reporting) | 5174 |
 | `apps/receipts` | Operator finance tool: cash log, invoices, formal billing, share text | 5176 |
-| `apps/waiver-viewer` | Mobile waiver review app (Cloudflare Access protected) | 5177 |
+| `apps/waiver-viewer` | Mobile waiver review app (staff-key unlock) | 5177 |
 
 ```
-Browser (receipts / waiver-viewer, Vite)
+Browser (dashboard / receipts / waiver-viewer, Vite)
   -> API in the `temple underground signup` repo (services/api, :3001 locally)
-       - /api/admin/*   guarded by x-admin-key
-       - /api/viewer/*  guarded by Cloudflare Access
+       - /api/admin/*   guarded by x-admin-key (all three apps)
+       - /api/viewer/*  Cloudflare Access route; the waiver viewer does not call it
   -> Supabase (Postgres) via the service-role key (server-only, NOT in this repo)
 ```
 

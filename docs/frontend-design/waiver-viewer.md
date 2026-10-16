@@ -2,17 +2,18 @@
 
 Status: **implemented** in `apps/waiver-viewer`.
 
-Phone-first list → expand. Auth is Cloudflare Access (`credentials: "same-origin"`). This app does not send `x-admin-key` and does not call `/api/admin/*`.
+Phone-first list → expand. Cloudflare Access is not the gate. The app opens on the same blocking unlock page as the dashboard and receipts: API base plus staff key, checked with `GET /api/admin/auth/me`. The key stays in memory and is sent as `x-admin-key`. Lock or reload clears it.
 
 **Redesign note:** [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md).
 
-See `apps/waiver-viewer/cloudflare/README.md` for `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and the email allowlist. Locally, `WAIVER_VIEWER_DEV_BYPASS=true` on the API skips Access when Cloudflare is not configured. The Vite dev server is port **5177**.
+The Vite dev server is port **5177**. `VITE_API_BASE_URL` prefills the API base (default `http://localhost:3001`).
 
 ## Surface → endpoint
 
 | Screen / action | Method · Endpoint | Auth | Reads |
 | --- | --- | --- | --- |
-| **Waiver list** (mount and Refresh) | `GET /api/viewer/waiver-documents?sort=signed_at_utc&order=desc&limit=50&offset=` | Cloudflare Access | `rows[]` from `view_waiver_documents` |
+| **Unlock** | `GET /api/admin/auth/me` | `x-admin-key` | `staff.display_name`, `staff.role` (`owner` \| `finance` \| `front_desk`), `staff.auth_method` |
+| **Waiver list** (mount and Refresh) | `GET /api/admin/reporting/views/waiver-documents?sort=signed_at_utc&order=desc&limit=50&offset=` | `x-admin-key` | `rows[]` from `view_waiver_documents` |
 | Sort A–Z | `sort=participant_full_name&order=asc` | " | Resets `offset` to 0 |
 | Signed dates | `start=YYYY-MM-DD` and/or `end=YYYY-MM-DD`, only when set | " | Resets `offset` to 0 |
 | Next / Previous | same path, `offset` steps by 50 | " | Next stays disabled when the page is shorter than 50 or the read failed |
@@ -27,9 +28,10 @@ Sortable columns on the view include `participant_full_name`, `signed_at_utc`, a
 
 | Condition | Copy |
 | --- | --- |
-| `401` | Sign in through Cloudflare Access, then reload. |
-| `403` | This account is not on the waiver viewer allowlist. |
-| `503` `viewer_access_not_configured` or `viewer_allowlist_not_configured` | Viewer access is not configured on the API. |
+| Unlock `401` | That key was not accepted. |
+| Unlock `403`, or a role outside `owner` / `finance` / `front_desk` | Your staff role cannot access waivers. / The API did not return a supported staff identity. |
+| List `401` | Session expired. Unlock to continue. The workspace locks. |
+| List `403` | Your staff role cannot access waivers. |
 | Network, timeout (15s), or any other failure | Waivers unavailable. Retry. |
 
 ## What expand shows
@@ -49,9 +51,7 @@ The collapsed card shows name, signed time, email/phone when present, and three 
 
 ## Signed PDF (signup repo, not this app)
 
-Dashboard People signs a PDF with `GET /api/admin/waivers/:id` and `x-admin-key`. This viewer cannot call that route.
-
-Follow-up for the signup repo: `GET /api/viewer/waivers/:id` that returns short-lived signed URLs after the same Access checks as the list. Do not stub that with an admin key in this app.
+Dashboard People signs a PDF with `GET /api/admin/waivers/:id` and `x-admin-key`. This viewer does not call that route. Signed PDFs stay on dashboard People.
 
 | Action | Method · Endpoint | Auth | Returns |
 | --- | --- | --- | --- |

@@ -15,7 +15,7 @@ alwaysApply: true
 - When building or editing an admin screen, follow `docs/frontend-design/` — each screen is
   mapped to its endpoint, request body, and response shape. Keep those docs in sync if a
   call changes.
-- Admin calls send `x-admin-key`; viewer calls use Cloudflare Access (no admin key). Money is
+- Admin calls, including the waiver viewer, send `x-admin-key`. Money is
   integer cents. Success is `200 { ok:true, ... }`; failure is `{ ok:false, error }`. Reuse
   `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) (and the dashboard's matching helpers)
   for new admin calls.

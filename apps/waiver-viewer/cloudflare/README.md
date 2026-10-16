@@ -1,6 +1,10 @@
-# Waiver Viewer — Cloudflare Access deployment
+# Waiver Viewer — Cloudflare notes
 
-This app should be deployed **without** any browser admin key. Access is enforced in two layers:
+The app no longer uses Cloudflare Access as its gate. It opens on a staff-key unlock page and calls `/api/admin/*` with `x-admin-key`. Do not bake that key into the build.
+
+## Earlier Access deployment
+
+These notes are not the current sign-in path. Access was enforced in two layers:
 
 1. **Cloudflare Access** (login gate: GitHub, email OTP, etc.)
 2. **API viewer proxy** (`GET /api/viewer/waiver-documents`) which verifies the Access JWT and your email allowlist
@@ -99,7 +103,7 @@ cloudflared tunnel run waiver-viewer
 | --- | --- |
 | `VITE_API_BASE_URL` | Optional. Leave unset when API is same-origin (`/api/...`). Set full API URL only for split-host dev. |
 
-Do not add a browser admin key to this app. Access is the only gate.
+Do not bake a staff key into the build. Operators type it on the unlock page. It stays in memory.
 
 ## Phone shortcut
 
@@ -126,7 +130,7 @@ Priority: **important, not urgent.** Check off when done.
 - [ ] **Create DNS alias** — CNAME (or tunnel route) for that hostname → Cloudflare Tunnel or origin.
 - [ ] **Path routing** — `/` → waiver viewer static build; `/api/*` → `services/api` (see `config.yml.example`).
 - [ ] **Confirm URL** — browser can open viewer at `/` and API health at `/api/...` on the **same** hostname.
-- [ ] Do not add a browser admin key to the viewer build.
+- [ ] Do not bake a staff key into the viewer build. Operators enter it on the unlock page.
 
 ### Cloudflare Zero Trust (Access)
 
@@ -150,8 +154,8 @@ Set these on wherever `services/api` runs (Render, VPS, etc.):
 ### Viewer app build
 
 - [ ] `npm run build:waiver-viewer` — deploy `apps/waiver-viewer/dist` to static hosting behind the same hostname.
-- [ ] Leave `VITE_API_BASE_URL` **unset** if viewer and API share one hostname (uses relative `/api/viewer/...`).
-- [ ] Smoke test: log in via GitHub → the waiver list loads → expand one record. Signed PDFs stay on dashboard People.
+- [ ] Set `VITE_API_BASE_URL` to the API origin so the unlock page prefills it.
+- [ ] Smoke test: unlock with a staff key → the waiver list loads → expand one record. Signed PDFs stay on dashboard People.
 
 ### Phone shortcut
 
