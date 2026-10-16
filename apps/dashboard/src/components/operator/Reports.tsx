@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isDate, type Row } from "@/lib/operator";
 import {
+  ExternalToolLink,
   Limitation,
   Panel,
   ReadStatus,
@@ -155,8 +156,8 @@ export function More({
   viewerUrl,
 }: {
   connection: Connection;
-  receiptsUrl: string;
-  viewerUrl: string;
+  receiptsUrl: string | null;
+  viewerUrl: string | null;
 }) {
   const [slug, setSlug] = useState<string>(reports[0].slug);
   const [tool, setTool] = useState<"reports" | "expenses" | "leads">("reports");
@@ -183,22 +184,8 @@ export function More({
           ))}
         </div>
         <div className="actions">
-          <a
-            className="operator-link"
-            href={receiptsUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Receipts tool ↗
-          </a>
-          <a
-            className="operator-link"
-            href={viewerUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Waiver review tool ↗
-          </a>
+          <ExternalToolLink href={receiptsUrl} label="Receipts tool" />
+          <ExternalToolLink href={viewerUrl} label="Waiver review tool" />
         </div>
         <p className="muted">
           Separate tools retain their own authentication. Keys are never
