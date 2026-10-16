@@ -4,10 +4,14 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "vite";
 import { localDate } from "../src/lib/operator.ts";
+import { encodeRgbaPng } from "../src/lib/waiver-png.ts";
 
-const { chromium } = await import(
+const playwrightModule = await import(
   process.env.DASHBOARD_PLAYWRIGHT_MODULE || "playwright"
 );
+const { chromium } = playwrightModule.chromium
+  ? playwrightModule
+  : playwrightModule.default;
 const server = await createServer({
   server: { host: "127.0.0.1", port: 5174, strictPort: true },
 });
@@ -67,6 +71,24 @@ const waiver = {
   participant_full_name: person.full_name,
   signed_at_utc: `${day}T12:00:00Z`,
 };
+const signaturePng = Buffer.from(
+  await encodeRgbaPng(
+    40,
+    20,
+    Uint8Array.from(
+      { length: 40 * 20 * 4 },
+      (_, index) => {
+        const pixel = Math.floor(index / 4);
+        const x = pixel % 40;
+        const y = Math.floor(pixel / 40);
+        const channel = index % 4;
+        const ink = x > 4 && x < 30 && y > 4 && y < 16;
+        if (channel === 3) return ink ? 255 : 0;
+        return ink ? 12 : 0;
+      },
+    ),
+  ),
+);
 const requests = [];
 const errors = [];
 const output = process.env.DASHBOARD_SCREENSHOT_DIR;
@@ -83,6 +105,20 @@ async function verify(width) {
     const url = new URL(route.request().url());
     if (!["127.0.0.1", "localhost"].includes(url.hostname)) {
       await route.abort();
+      return;
+    }
+    if (url.pathname === "/synthetic.pdf") {
+      throw new Error("The stored waiver PDF must stay unopened.");
+    }
+    if (url.pathname === "/synthetic-signature.png") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "access-control-allow-origin": "*",
+        },
+        body: signaturePng,
+      });
       return;
     }
     if (!url.pathname.startsWith("/api/admin/")) {
@@ -215,9 +251,30 @@ async function verify(width) {
         data = {
           ok: true,
           documentPdfUrl: `http://127.0.0.1:5174/synthetic.pdf?revision=${documentReads}`,
+          signatureUrl: `http://127.0.0.1:5174/synthetic-signature.png?revision=${documentReads}`,
+          documentSha256: "ab".repeat(32),
           content_version: "test-v1",
           locale: "en",
         };
+    }     else if (path.endsWith("/waiver-documents")) {
+      assert.equal(url.searchParams.get("start"), day);
+      assert.equal(url.searchParams.get("end"), nextDay);
+      data = {
+        ok: true,
+        rows: [
+          {
+            ...waiver,
+            participant_date_of_birth: "1991-04-02",
+            participant_email: person.email,
+            heart_disease: false,
+            high_blood_pressure: true,
+            consent_acknowledged: true,
+            initials_risk_assumption: "CR",
+            locale: "en",
+            content_version: "test-v1",
+          },
+        ],
+      };
     } else if (path.endsWith("/ar-aging"))
       data = {
         ok: true,
@@ -362,14 +419,34 @@ async function verify(width) {
   await page.getByText("Unavailable: signed_url_failed.").waitFor();
   failDocument = false;
   await page.getByRole("button", { name: "Refresh document link" }).click();
-  const pdf = page.getByRole("link", { name: "Open signed PDF" });
-  await pdf.waitFor();
-  const firstUrl = await pdf.getAttribute("href");
-  await page.getByRole("button", { name: "Refresh document link" }).click();
-  await page.waitForFunction(
-    (old) => document.querySelector(".document-detail a")?.href !== old,
-    firstUrl,
+  const readsBeforeOpen = documentReads;
+  await page.getByRole("button", { name: "Open signed PDF" }).click();
+  const preview = page.getByTitle("Signed waiver PDF");
+  await preview.waitFor();
+  await preview.scrollIntoViewIfNeeded();
+  if (output) {
+    await page.screenshot({
+      path: `${output}/signed-pdf-${width}.png`,
+    });
+  }
+  await page.getByRole("link", { name: "Download signed PDF" }).waitFor();
+  const previewSrc = await preview.getAttribute("src");
+  assert.match(previewSrc, /^blob:/);
+  const previewBytes = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    return (await response.arrayBuffer()).byteLength;
+  }, previewSrc);
+  assert.ok(previewBytes > 1000, "opened PDF is empty");
+  assert.equal(
+    await page.evaluate(async (url) => {
+      const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      return String.fromCharCode(...bytes.slice(0, 5));
+    }, previewSrc),
+    "%PDF-",
   );
+  assert.ok(documentReads >= readsBeforeOpen);
+  await page.getByRole("button", { name: "Refresh document link" }).click();
+  await preview.waitFor();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await page
     .getByText("No waiver for this participant on the loaded page.", {

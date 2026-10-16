@@ -182,6 +182,13 @@ operating_delta_cents, deficit_to_cover_cents, owner_subsidy_cents } }`.
 locale, content_version, created_at, identity_snapshot }` (signed URLs, 5-min expiry).
 Errors: `not_found` (404), `audit_not_found` (404).
 
+People → Open signed PDF does not navigate to `documentPdfUrl`. That stored object is the
+archived upload and can be an incomplete layout. The dashboard instead loads the matching
+row from `GET /api/admin/reporting/views/waiver-documents` and the signature image from
+`signatureUrl`, then builds a reading copy in the browser. Download uses those same bytes.
+The archived object and `documentSha256` are not rewritten. If the signature image or the
+waiver row cannot be read, the panel shows an error and does not open a partial file.
+
 ### `GET /api/viewer/waiver-documents`  (Cloudflare Access, no admin key)
 Same query options as `reporting/views/waiver-documents`; reads `view_waiver_documents`.
 `503` if viewer access not configured (`viewer_access_not_configured`,
