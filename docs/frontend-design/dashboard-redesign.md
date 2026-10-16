@@ -16,7 +16,9 @@ Review date: 2026-10-03. Product brief: attached Temple Underground Admin Dashbo
 
 G1 participant/payer detail and named rosters; G2 canonical plan/current enrollment reads; G3 complete payer statement/allocatable charge balances; G4 payment/refund/receipt history; G5 recurring integration/release; G7 correction previews and reconciliation; G8 generation preview and secure durable sessions; G9 manual charge/void contract; G10 full-refund and discount reporting validation.
 
-Attendance remains read-only because arbitrary roster names cannot be hydrated through released ID reads. No UUID input or entitlement bypass is provided. Payment, enrollment, recurring agreements, generation and corrections remain unavailable with explicit reasons. Existing receipts and Access waiver viewer apps remain independent tools with their existing limitations.
+Attendance remains read-only because arbitrary roster names cannot be hydrated through released ID reads. No UUID input or entitlement bypass is provided. Payment, enrollment, recurring agreements, generation and corrections remain unavailable with explicit reasons. Existing receipts and waiver viewer apps remain independent tools with their existing limitations.
+
+More → Reports and tools links **Receipts tool** to `https://finance.templeunderground.com` and **Waiver review tool** to `https://waiverviewer.templeunderground.com`. Billing uses the same receipts destination. `VITE_RECEIPTS_APP_URL` and `VITE_WAIVER_VIEWER_APP_URL` override those hosts when the value is a public `http`/`https` URL. `npm run dev` falls back to `http://localhost:5176` and `http://localhost:5177`. A production build never emits a loopback tool link; if neither the override nor the deployed host is a public URL, the control is disabled and labeled unavailable. Staff keys are not added to these links.
 
 ## Screen/action → HTTP endpoint map
 

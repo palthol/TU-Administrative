@@ -16,6 +16,11 @@ import { Classes } from "@/components/operator/Classes";
 import { Billing } from "@/components/operator/Billing";
 import { More } from "@/components/operator/Reports";
 import type { Connection } from "@/components/operator/shared";
+import {
+  RECEIPTS_PRODUCTION_URL,
+  WAIVER_VIEWER_PRODUCTION_URL,
+  resolveToolLink,
+} from "@/lib/tool-links";
 
 const destinations = ["Today", "People", "Billing", "Classes", "More"] as const;
 type Destination = (typeof destinations)[number];
@@ -160,10 +165,28 @@ function Workspace({
   const heading = useRef<HTMLHeadingElement>(null);
   const scrollPositions = useRef<Partial<Record<Destination, number>>>({});
   const previous = useRef(nav);
-  const receiptsUrl =
-    import.meta.env.VITE_RECEIPTS_APP_URL || "http://localhost:5176";
-  const viewerUrl =
-    import.meta.env.VITE_WAIVER_VIEWER_APP_URL || "http://localhost:5177";
+  const receiptsUrl = import.meta.env.DEV
+    ? resolveToolLink(
+        import.meta.env.VITE_RECEIPTS_APP_URL,
+        "http://localhost:5176",
+        true,
+      )
+    : resolveToolLink(
+        import.meta.env.VITE_RECEIPTS_APP_URL,
+        RECEIPTS_PRODUCTION_URL,
+        false,
+      );
+  const viewerUrl = import.meta.env.DEV
+    ? resolveToolLink(
+        import.meta.env.VITE_WAIVER_VIEWER_APP_URL,
+        "http://localhost:5177",
+        true,
+      )
+    : resolveToolLink(
+        import.meta.env.VITE_WAIVER_VIEWER_APP_URL,
+        WAIVER_VIEWER_PRODUCTION_URL,
+        false,
+      );
   useEffect(() => {
     const timer = setInterval(() => setToday(localDate()), 60000);
     return () => clearInterval(timer);

@@ -381,6 +381,21 @@ async function verify(width) {
     .locator(width >= 1024 ? ".operator-rail" : ".workspace-header")
     .getByRole("link", { name: "More", exact: true })
     .click();
+  assert.equal(
+    await page.getByRole("link", { name: "Receipts tool" }).getAttribute("href"),
+    "http://localhost:5176",
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Waiver review tool" })
+      .getAttribute("href"),
+    "http://localhost:5177",
+  );
+  if (output)
+    await page.screenshot({
+      path: `${output}/tools-${width}.png`,
+      fullPage: true,
+    });
   await page.getByRole("button", { name: "Date filters" }).click();
   await page.getByLabel("Start date", { exact: true }).fill("2026-01-01");
   await page.getByLabel("End date", { exact: true }).fill("2026-12-31");
@@ -388,6 +403,14 @@ async function verify(width) {
   await page
     .getByText("Applied dates: 2026-01-01 through 2026-12-31", { exact: false })
     .waitFor();
+
+  await nav.getByRole("link", { name: "Billing", exact: true }).click();
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open separate receipts tool" })
+      .getAttribute("href"),
+    "http://localhost:5176",
+  );
 
   for (const name of ["Today", "People", "Billing", "Classes", "More"]) {
     await page
