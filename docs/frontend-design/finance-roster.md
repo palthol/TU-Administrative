@@ -1,6 +1,6 @@
 # Finance roster — accounts, subscription, schedule
 
-Status: **proposed.** No screen and no new endpoint exist yet. [`api-reference.md`](./api-reference.md) stays the live contract until `TU-api` `develop` ships the reads and the safe enroll flag below.
+Status: **proposed.** No screen and no new endpoint exist yet. [`api-reference.md`](./api-reference.md) stays the live contract until `TU-api` `develop` ships the reads and the safe enroll flag below. The copy-paste implementation prompt is [`finance-roster-prompt.md`](./finance-roster-prompt.md).
 
 This is the next finance-workspace slice on `develop`. It replaces the unrun production script `scripts/production/backfill-subscriptions-2026-09.sql` on `TU-api` branch `chore/subscription-backfill-2026-09` as the way an operator records who is subscribed.
 
