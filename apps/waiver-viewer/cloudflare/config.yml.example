@@ -11,7 +11,7 @@ ingress:
 
   # Static waiver viewer (vite build output)
   - path: /*
-    service: http://127.0.0.1:5176
+    service: http://127.0.0.1:5177
     # For production static hosting, point to a file server instead, e.g.:
     # service: file://C:/path/to/apps/waiver-viewer/dist
 

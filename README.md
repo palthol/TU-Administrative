@@ -40,6 +40,7 @@ from the signup repo: `npm run dev:api`.
 | `npm run build` | Build all front-ends |
 | `npm run dev:dashboard` | Dashboard only (port 5174) |
 | `npm run test:receipts` | Receipts unit tests |
+| `npm run test:waiver-viewer` | Waiver viewer unit tests |
 
 ## Design docs (the point of this repo)
 

@@ -1,61 +1,49 @@
-# Waiver Viewer
+# Waiver viewer
 
-Standalone, mobile-first waiver review app for trusted operators.
+Phone-first waiver review for operators. One surface: a list, then one expanded record.
 
-It intentionally lives outside the full dashboard so a phone can open only the waiver review workflow.
+Cloudflare Access is the only gate. The browser does not send an admin key and does not call `/api/admin/*`.
 
 ## Data source
-
-The app calls the **viewer proxy** (not admin routes directly):
 
 ```text
 GET /api/viewer/waiver-documents
 ```
 
-That endpoint is protected by Cloudflare Access (production) or a local dev bypass, and reads from the existing Supabase view:
-
-```text
-view_waiver_documents
-```
-
-No browser service-role key or `VITE_ADMIN_API_KEY` is used.
+The API checks the Access JWT and the email allowlist, then reads `view_waiver_documents`. Object paths in that view are not signed URLs. Signed PDFs open from dashboard People.
 
 ## Run locally
 
 ```bash
 # from repo root
 # API: allow local dev without Cloudflare Access
-# (set in services/api/.env or your shell)
+# (set in the signup repo, not in this app)
 WAIVER_VIEWER_DEV_BYPASS=true
 
 npm run dev:api
 npm run dev:waiver-viewer
 ```
 
-Open the Vite URL, usually:
+Open the Vite URL:
 
 ```text
-http://localhost:5176
+http://localhost:5177
 ```
 
 Vite proxies `/api` to `http://localhost:3001`.
 
-Optional: set `VITE_API_BASE_URL` if the API is not on the same origin during dev.
+Optional: set `VITE_API_BASE_URL` when the API is on another origin.
 
 ## Deploy with Cloudflare Access
 
-See [cloudflare/README.md](./cloudflare/README.md) for:
+See [cloudflare/README.md](./cloudflare/README.md).
 
-- GitHub login via Cloudflare Zero Trust
-- Email allowlist on the API
-- Session duration / “remember device”
-- Tunnel + single-hostname routing
-- Phone home-screen shortcut
+## What the screen does
 
-## MVP behavior
-
-- Lists waivers as mobile-first cards.
-- Sorts by:
-  - most recent first
-  - participant name alphabetically
-- Expands a card to show participant, waiver, emergency contact, medical, and audit/document details.
+- Loads the latest page on open. Refresh retries that read.
+- Sorts by recent signature time or by name. Each change starts again at the first page.
+- Filters with `start` / `end` when those dates are set.
+- Pages 50 rows at a time.
+- Searches the loaded page by name, email, or phone. The API has no search query.
+- Expands one record: contact, emergency contact, acknowledgements, and a note that this app cannot open the PDF.
+- Keeps medical answers behind “Medical answers (sensitive)”.
