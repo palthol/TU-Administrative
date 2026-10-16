@@ -524,6 +524,18 @@ p {
   text-underline-offset: 0.2rem;
   overflow-wrap: anywhere;
 }
+button.operator-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+button.operator-link:disabled {
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
 .filter-sheet {
   max-width: min(460px, calc(100vw - 2rem));
   width: 100%;

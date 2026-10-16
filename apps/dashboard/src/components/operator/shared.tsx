@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cell, label, type Row } from "@/lib/operator";
 import { readAdmin } from "@/lib/operator-api";
+import { toolLinkLabel } from "@/lib/tool-links";
 
 export type Connection = { apiBase: string; adminKey: string };
 export type ReadState<T> = {
@@ -66,6 +67,28 @@ export function useEndpoint<T>(connection: Connection, path: string) {
     [apiBase, adminKey, path],
   );
   return useRead(load, path);
+}
+
+export function ExternalToolLink({
+  href,
+  label: linkLabel,
+}: {
+  href: string | null;
+  label: string;
+}) {
+  const text = toolLinkLabel(linkLabel, href);
+  if (!href) {
+    return (
+      <button type="button" className="operator-link" disabled>
+        {text}
+      </button>
+    );
+  }
+  return (
+    <a className="operator-link" href={href} target="_blank" rel="noreferrer">
+      {text}
+    </a>
+  );
 }
 
 export function Panel({

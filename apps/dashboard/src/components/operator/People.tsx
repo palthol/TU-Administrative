@@ -33,7 +33,6 @@ export function ParticipantLookup({
   selected,
   onSelect,
   onPayer,
-  showHelp,
 }: {
   connection: Connection;
   query: string;
@@ -41,7 +40,6 @@ export function ParticipantLookup({
   selected: Participant | null;
   onSelect: (p: Participant) => void;
   onPayer: (account: Account) => void;
-  showHelp: boolean;
 }) {
   const [debounced, setDebounced] = useState(query);
   const [active, setActive] = useState(-1);
@@ -130,12 +128,10 @@ export function ParticipantLookup({
           </Button>
         )}
       </div>
-      {(showHelp || query.length > 0) && (
-        <p id="search-guidance" className="muted text-sm">
-          Enter at least two characters. Use ↑ / ↓ and Enter to select, or
-          choose a result.
-        </p>
-      )}
+      <p id="search-guidance" className="muted text-sm">
+        Enter at least two characters. Use ↑ / ↓ and Enter to select, or
+        choose a result.
+      </p>
       {query.trim().length >= 2 && (
         <div className="search-results">
           {!settled ? (

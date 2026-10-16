@@ -12,7 +12,11 @@ Payment recording, enrollment, recurring agreements, charge generation and corre
 remain gated by the verified read/release gaps. Individual attendance updates await named
 roster reads and a reviewed exception workflow. Cash/operating-delta totals are withheld
 pending full-refund reporting validation. Separate receipts and waiver-viewer apps remain
-available and retain their existing contracts and limitations.
+available and retain their existing contracts and limitations. More → Reports and tools,
+and Billing, open those deployed apps (`https://finance.templeunderground.com` and
+`https://waiverviewer.templeunderground.com`) unless a public `VITE_*_APP_URL` overrides
+them. Local `npm run dev` still uses ports 5176 and 5177. A loopback URL is never used
+in a production build; a missing public destination is shown as unavailable.
 
 See [dashboard-redesign.md](../../docs/frontend-design/dashboard-redesign.md) for the
 reviewed frontend/API commits, exact endpoint map, scope definitions, release gates and
@@ -23,7 +27,7 @@ Keys and loaded records clear on Lock/Sign out or reload. No key is placed in `V
 links or browser storage. Supabase Auth does not authorize admin API calls.
 
 **Finance log endpoints** (personal finance entries, formal `record-payment`, charge discounts,
-receipt void/refund) live in `apps/receipts` — linked from the dashboard header.
+receipt void/refund) live in `apps/receipts` — linked from Billing and More.
 
 API contract: `temple underground signup` repo → `docs/admin-api.md`.  
 Design docs in this repo: `docs/frontend-design/api-reference.md`.
