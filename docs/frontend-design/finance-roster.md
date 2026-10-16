@@ -53,8 +53,9 @@ New hash destination `#roster`. Desktop rail includes it. Phone reaches it from 
 3. For each member, the row shows whether an active subscription exists.
 4. When it does, the row shows plan name, cadence, catalog price, start date, and whether automatic billing is off.
 5. When it does not, the operator turns on **Has a subscription**, picks a plan, sets a start date (default today), and saves that one person.
-6. The confirmation line is: “This records {name} on {plan} starting {date}. No charge is created. Automatic billing stays off.”
-7. Success copy names the person and the plan. The technical subscription id stays behind Details.
+6. The plan picker ends with **More options**. That opens More, on the add-plan panel. After a plan is saved, the roster picker includes it.
+7. The confirmation line is: “This records {name} on {plan} starting {date}. No charge is created. Automatic billing stays off.”
+8. Success copy names the person and the plan. The technical subscription id stays behind Details.
 
 One account can hold several members. Each member gets their own subscription on that account. The household case is two saves on one account, not one account-level switch.
 
@@ -64,7 +65,7 @@ An existing active subscription is shown and left unchanged. Plan changes, pause
 
 This repo does not add the routes. Ship and document them in `TU-api` before the receipts screen calls them. After they exist, copy the shapes into [`api-reference.md`](./api-reference.md) and the action table in [`receipts-app.md`](./receipts-app.md).
 
-Auth remains `x-admin-key`. Success is `200 { ok:true, ... }`. Money is integer cents. `front_desk` is `403 forbidden` on all three routes, matching today’s subscription write rule.
+Auth remains `x-admin-key`. Success is `200 { ok:true, ... }`. Money is integer cents. `front_desk` is `403 forbidden` on these routes, matching today’s subscription write rule.
 
 ### `GET /api/admin/billing/account-roster`
 
@@ -146,13 +147,65 @@ Roster rules the API enforces:
 
 `arm_automatic_billing` omitted means the current paid-monthly behavior: set the automation date to the day after calendar-month end. The roster always sends `false`.
 
+### `POST /api/admin/billing/plans`
+
+Creates one catalog plan. Used from More. Does not enroll a person and does not insert a charge.
+
+Attendance reads `plan_entitlements`, joined to the plan. A plan row with no entitlement grants no class access. The create copies entitlement rows from a plan the operator already trusts (the Jennifer Hill contract is this shape: its own price and cadence, unlimited group access copied from the pattern of Unlimited Group).
+
+```json
+{
+  "name": "Weekday plus open mat — negotiated",
+  "description": "optional",
+  "plan_category": "group",
+  "billing_cadence": "monthly",
+  "price_cents": 13500,
+  "copy_access_from_plan_id": "uuid"
+}
+```
+
+`plan_category` is `group`, `private`, or `hybrid`. `billing_cadence` is `per_session`, `monthly`, `contract`, or `custom`. `price_cents` is an integer ≥ 0. Currency is USD. `is_active` is true.
+
+```ts
+{
+  ok: true,
+  plan: {
+    plan_definition_id: string,
+    name: string,
+    plan_category: string,
+    billing_cadence: string,
+    price_cents: number,
+    currency: 'USD',
+    is_active: true,
+    access_copied_from_plan_id: string,
+    entitlement_count: number
+  }
+}
+```
+
+Errors: `name_required`, `plan_name_taken` (same name already active), `invalid_plan_category`, `invalid_billing_cadence`, `invalid_price_cents`, `copy_access_from_plan_id_required`, `source_plan_not_found`. `front_desk` is `403`.
+
+Deactivating or editing a plan is a later route. This post only adds one.
+
+## Add a plan on More
+
+More already holds the rare tools (share samples, void, refund). Add a plan is the same kind of action. Peak-hour cash stays on Cash.
+
+The panel fields are name, price in dollars (sent as cents), category, cadence, and **Same access as** (a required select of active plans from `GET /api/admin/billing/plans`). The confirmation line is: “Add {name} at {price}, {cadence}, with the same class access as {source plan}. Nobody is enrolled.”
+
+The roster picker does not contain a second form. **More options** at the bottom of the picker navigates to `#more` and focuses this panel. Saving there returns the new plan id; when the operator goes back to the roster, the picker reloads and can select it.
+
+Owner and finance see the form. Front desk sees “Adding a plan is limited to owner and finance.” and no save control.
+
 ## Screen → request map (once the API exists)
 
 | Control | Method · endpoint | Body / query | Reads |
 | --- | --- | --- | --- |
 | Load roster | `GET /api/admin/billing/account-roster` | `limit=50&offset=0&status=active` | `rows[]` |
 | Search | same | `q` when length ≥ 2 | replaces the page |
-| Load plans | `GET /api/admin/billing/plans?active=true` | — | picker options |
+| Load plans | `GET /api/admin/billing/plans?active=true` | — | picker options, and the “Same access as” select |
+| More options | — | navigates to `#more` | focuses the add-plan panel |
+| Add plan | `POST /api/admin/billing/plans` | name, category, cadence, `price_cents`, `copy_access_from_plan_id` | new plan in the catalog |
 | Save enrollment | `POST /api/admin/billing/subscriptions` | fields above, both flags `false` | person + plan on the row |
 
 Failed saves keep the form. `401` locks the workspace, same as the other finance panels.
@@ -170,8 +223,8 @@ Formal still collects only charges that already exist. After this roster, those 
 
 ## Build order
 
-1. **TU-api `develop`.** Roster read, plan read, `arm_automatic_billing: false`, overlap rejection. Tests: paid monthly enroll with both flags false writes a subscription, writes no charge, leaves `automatic_billing_starts_at` null, and a second overlapping enroll fails. Omitting the new flag still sets the automation date, so existing callers stay stable.
-2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster` in `apps/receipts` with the confirmation line, owner/finance save, and `403` copy for front desk.
+1. **TU-api `develop`.** Roster read, plan read, plan create (with copied entitlements), `arm_automatic_billing: false`, overlap rejection. Tests: paid monthly enroll with both flags false writes a subscription, writes no charge, leaves `automatic_billing_starts_at` null, and a second overlapping enroll fails. Plan create writes one `plan_definitions` row and the same entitlement rows as the source plan, and enrolls nobody. Omitting the new enroll flag still sets the automation date, so existing callers stay stable.
+2. **This repo.** Add the shapes to `api-reference.md` and `receipts-app.md` only after that API is on `develop`. Build `#roster` and the More add-plan panel, with **More options** on the picker opening that panel. Owner/finance can save. Front desk sees the role limit.
 3. **Operator pass.** Mark each current member from the roster. Leave `chore/subscription-backfill-2026-09` unrun.
 4. **Later.** Payer schedule (amount + anchor) from the obligation design, then an explicit activate step that issues the period charge Formal already knows how to collect.
 
@@ -179,7 +232,9 @@ Formal still collects only charges that already exist. After this roster, those 
 
 - `#roster` loads accounts and members without pasting UUIDs.
 - The plan picker is the active catalog from the API, with cadence and catalog price visible.
-- Save sends `create_initial_charge: false` and `arm_automatic_billing: false` and shows the confirmation before the request.
+- **More options** on the picker opens the add-plan panel on More.
+- Add plan sends `copy_access_from_plan_id` and shows the confirmation that nobody is enrolled.
+- Enrollment save sends `create_initial_charge: false` and `arm_automatic_billing: false` and shows the confirmation before the request.
 - A member who already has an active subscription cannot be enrolled again from this screen.
 - `front_desk` sees the role limit and no save control.
 - `npm run test:receipts` covers the request body and the confirmation copy. `npm run build:receipts` passes.
