@@ -1,0 +1,3173 @@
+From 68c83f3172bae9241cc8a02e1cf4e164e5a8db5b Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 16 Oct 2026 09:07:16 +0000
+Subject: [PATCH] Add the finance roster billing routes.
+
+expected_pay_on is a reminder date only. Roster enrollment can leave automatic billing off and insert no charge, and issuing a charge stores the next reminder date in the same transaction.
+---
+ docs/admin-api.md                             | 186 +++-
+ services/api/src/index.js                     |   2 +
+ services/api/src/lib/isoDate.js               |  11 +
+ services/api/src/lib/staffAuth.js             |  16 +
+ services/api/src/lib/staffAuth.test.js        |  19 +
+ services/api/src/routes/admin/billing.js      |  28 +-
+ .../api/src/routes/admin/financeRoster.js     | 318 ++++++
+ .../src/routes/admin/financeRoster.test.js    | 304 ++++++
+ .../api/src/routes/admin/notifications.js     |  46 +-
+ .../src/routes/admin/notifications.test.js    | 128 +++
+ .../src/routes/admin/subscriptions.test.js    | 123 +++
+ ...6120000_finance_roster_expected_pay_on.sql | 834 ++++++++++++++++
+ .../tests/database/finance_roster.test.sql    | 909 ++++++++++++++++++
+ 13 files changed, 2913 insertions(+), 11 deletions(-)
+ create mode 100644 services/api/src/lib/isoDate.js
+ create mode 100644 services/api/src/routes/admin/financeRoster.js
+ create mode 100644 services/api/src/routes/admin/financeRoster.test.js
+ create mode 100644 services/api/src/routes/admin/notifications.test.js
+ create mode 100644 supabase/migrations/20261016120000_finance_roster_expected_pay_on.sql
+ create mode 100644 supabase/tests/database/finance_roster.test.sql
+
+diff --git a/docs/admin-api.md b/docs/admin-api.md
+index 861d50c..906e25f 100644
+--- a/docs/admin-api.md
++++ b/docs/admin-api.md
+@@ -345,6 +345,8 @@ Creates an **active** subscription for a participant on a plan (enrollment). Cal
+   "ends_at": "YYYY-MM-DD optional",
+   "account_id": "uuid optional; defaults to participant's first account_members row",
+   "create_initial_charge": "boolean optional; defaults to true for paid monthly plans and false for free/non-monthly plans",
++  "expected_pay_on": "YYYY-MM-DD optional; omitted stores null",
++  "arm_automatic_billing": "boolean optional; omitted keeps today's paid-monthly anchor",
+   "notes": "optional text",
+   "created_by": "optional; defaults to admin_api"
+ }
+@@ -370,13 +372,183 @@ monthly plan with `price_cents > 0` creates its first charge transactionally in
+ overrides the API default. Even when explicitly enabled, a free monthly plan
+ creates no monetary charge row.
+ 
+-For every paid monthly subscription,
+-`automatic_billing_starts_at` is persisted as the first day after the current
++When `arm_automatic_billing` is omitted, every paid monthly subscription still
++persists `automatic_billing_starts_at` as the first day after the current
+ billing period. `create_initial_charge: false` therefore suppresses the entire
+ current period: daily generation cannot recreate that charge, but recurring
+ billing begins in the next period. Migration `20260921185003` is applied in production. Pre-existing subscriptions were left with `NULL` and remain excluded from automation until an operator establishes an approved current baseline.
+ 
+-**Errors:** `400` — participant/plan not found, inactive plan, no account binding, explicit `create_initial_charge: true` on a non-monthly plan, plan lookup failure, or date validation failure (Postgres exception message in `error`).
++The finance roster sends `arm_automatic_billing: false` and
++`create_initial_charge: false` together. That path requires `account_id` and
++does not fall through to the first `account_members` row. It stores
++`expected_pay_on` when sent, leaves `automatic_billing_starts_at` null, and
++inserts no charge. `expected_pay_on` is only the date an operator wants to be
++reminded to issue a charge. It does not arm the generator and it does not
++rewrite `charges.due_at`. Omitting `expected_pay_on` stores null.
++
++A second active subscription whose dates overlap the same participant is
++rejected with `overlapping_active_subscription`.
++
++**Errors:** `400` — `participant_id_required`, `plan_definition_id_required`, `invalid_starts_at`, `invalid_ends_at`, `invalid_account_id`, `invalid_create_initial_charge`, `invalid_notes`, `invalid_expected_pay_on`, `invalid_arm_automatic_billing`, `account_id_required`, `overlapping_active_subscription`, participant/plan not found, inactive plan, no account binding, explicit `create_initial_charge: true` on a non-monthly plan, plan lookup failure, or another Postgres exception message in `error`. `403` — `front_desk`.
++
++---
++
++### `GET /api/admin/billing/account-roster`
++
++Page of accounts for the finance roster. `front_desk` is `403`.
++
++**Query:** `limit` (default 50, max 200), `offset` (default 0), `status` (`active` default, or `inactive`, or `all`), optional `q` (minimum 2 characters; matches account contact name or member full name).
++
++**Response:**
++
++```json
++{
++  "ok": true,
++  "limit": 50,
++  "offset": 0,
++  "rowCount": 1,
++  "rows": [
++    {
++      "account_id": "uuid",
++      "status": "active",
++      "primary_contact_name": "Ada",
++      "members": [
++        {
++          "participant_id": "uuid",
++          "full_name": "Ada Lovelace",
++          "role": "member",
++          "subscription": {
++            "subscription_id": "uuid",
++            "status": "active",
++            "plan_definition_id": "uuid",
++            "plan_name": "Core Group Plan",
++            "billing_cadence": "monthly",
++            "price_cents": 15000,
++            "starts_at": "YYYY-MM-DD",
++            "ends_at": null,
++            "expected_pay_on": "YYYY-MM-DD",
++            "automatic_billing_starts_at": null,
++            "open_charge": {
++              "charge_id": "uuid",
++              "amount_cents": 15000,
++              "due_at": "YYYY-MM-DD",
++              "status": "open"
++            }
++          },
++          "other_accounts": [
++            {
++              "account_id": "uuid",
++              "primary_contact_name": "Ada personal",
++              "status": "active",
++              "financially_empty": true
++            }
++          ]
++        }
++      ]
++    }
++  ]
++}
++```
++
++`subscription` is the active row for that participant on that account, or `null`. `open_charge` prefers an open charge whose `due_at` equals `expected_pay_on`, otherwise the earliest open charge. `financially_empty` is true when that other account has zero rows in `subscriptions`, `charges`, `payments`, `receipts`, and `personal_finance_entries`. Accounts are sorted by contact name, members by name. `rowCount` is the number of accounts in this page. A one-character `q` is `400` `query_min_length_2`.
++
++---
++
++### `GET /api/admin/billing/plans`
++
++Active catalog for the roster picker and the “Same access as” select. `front_desk` is `403`.
++
++**Query:** `active=true` (default). `active=false` returns inactive plans. `active=all` returns both.
++
++**Response:** `{ "ok": true, "rows": [{ "plan_definition_id", "name", "plan_category", "billing_cadence", "price_cents", "currency": "USD", "is_active" }] }`
++
++---
++
++### `POST /api/admin/billing/plans`
++
++Creates one active USD catalog plan and copies `plan_entitlements` from `copy_access_from_plan_id` in the same transaction. Does not enroll a participant and does not insert a charge. `front_desk` is `403`.
++
++**Body (JSON):**
++
++```json
++{
++  "name": "Weekday plus open mat — negotiated",
++  "description": "optional",
++  "plan_category": "group",
++  "billing_cadence": "monthly",
++  "price_cents": 13500,
++  "copy_access_from_plan_id": "uuid"
++}
++```
++
++`plan_category` is `group`, `private`, or `hybrid`. `billing_cadence` is `per_session`, `monthly`, `contract`, or `custom`. `price_cents` is an integer ≥ 0.
++
++**Response:** `{ "ok": true, "plan": { "plan_definition_id", "name", "plan_category", "billing_cadence", "price_cents", "currency": "USD", "is_active": true, "access_copied_from_plan_id", "entitlement_count" } }`
++
++**Errors:** `400` — `name_required`, `plan_name_taken` (same active name), `invalid_plan_category`, `invalid_billing_cadence`, `invalid_price_cents`, `copy_access_from_plan_id_required`, `source_plan_not_found`.
++
++---
++
++### `PATCH /api/admin/billing/subscriptions/:subscriptionId`
++
++Writes `subscriptions.expected_pay_on` only.
++
++**Body (JSON):** `{ "expected_pay_on": "YYYY-MM-DD" }`
++
++**Response:** `{ "ok": true, "subscription_id", "expected_pay_on" }`
++
++Existing charges keep `due_at`. `automatic_billing_starts_at` is not changed. `front_desk` is `403`.
++
++**Errors:** `400` — `subscription_not_found`, `invalid_expected_pay_on`.
++
++---
++
++### `POST /api/admin/billing/charges`
++
++Issues one manual charge for one subscription. Does not call `generate_monthly_charges` and does not set `automatic_billing_starts_at`. `amount_cents` is the integer the operator confirmed.
++
++**Body (JSON):**
++
++```json
++{
++  "account_id": "uuid",
++  "subscription_id": "uuid",
++  "amount_cents": 15000,
++  "due_at": "YYYY-MM-DD",
++  "coverage_start": "YYYY-MM-DD optional; defaults to due_at",
++  "coverage_end": "YYYY-MM-DD optional; defaults to the day before next_expected_pay_on",
++  "next_expected_pay_on": "YYYY-MM-DD"
++}
++```
++
++The charge account must match the subscription account. `next_expected_pay_on` is stored on the subscription after the charge insert succeeds, in the same transaction.
++
++**Response:** `{ "ok": true, "charge_id", "account_id", "subscription_id", "amount_cents", "due_at", "expected_pay_on" }`
++
++**Errors:** `400` — `subscription_not_found`, `charge_account_mismatch`, `invalid_amount_cents`, `invalid_due_at`, `invalid_expected_pay_on`, `coverage_end_before_start`. `403` — `front_desk`.
++
++---
++
++### `POST /api/admin/billing/household-moves`
++
++Adds the participant to an active destination account. Does not move charges, payments, or subscriptions, and does not merge participant rows. `front_desk` is `403`.
++
++**Body (JSON):**
++
++```json
++{
++  "participant_id": "uuid",
++  "destination_account_id": "uuid",
++  "role": "member",
++  "deactivate_source_account_id": "uuid optional"
++}
++```
++
++`role` is `member`, `payer`, or `guardian`. An existing destination membership keeps its role. When `deactivate_source_account_id` is set, it must be a different account the person belongs to, and that account must have zero rows in `subscriptions`, `charges`, `payments`, `receipts`, and `personal_finance_entries`. The save then removes that membership, sets the account `inactive`, and appends a note that names the destination account. Any financial row fails the whole transaction with `source_account_has_financial_history`.
++
++**Response:** `{ "ok": true, "participant_id", "destination_account_id", "role", "membership": "created | already_present", "deactivated_account_id": "uuid | null" }`
++
++**Errors:** `400` — `participant_id_required`, `destination_account_id_required`, `invalid_role`, `destination_account_not_active`, `source_account_required_member`, `source_account_has_financial_history`.
+ 
+ ---
+ 
+@@ -808,11 +980,11 @@ When `enforce_entitlement` is true (default), `present` rows call `can_attend_gr
+ 
+ ### `POST /api/admin/notifications/discord/payment-reminders`
+ 
+-Reads **`view_member_payment_reminders`** (overdue + due within 3 days) and posts a formatted message to **`DISCORD_WEBHOOK_URL`**.
++Reads **`view_member_payment_reminders`** (overdue + due within 3 days) and posts a formatted message to **`DISCORD_WEBHOOK_URL`**. A second section, **Issue a charge**, lists active subscriptions whose `expected_pay_on` is on or before today+7 and that have no open charge with that `due_at`. A person with only an expected pay date stays out of the 3-day charge list.
+ 
+ **Auth:** `x-admin-key` (shared owner key or an `owner` staff key) **or** `x-cron-secret` (when `CRON_SECRET` is configured on the API).
+ 
+-**Response:** `{ "ok": true, "posted": true, "rowCount": N }`
++**Response:** `{ "ok": true, "posted": true, "rowCount": N, "issueChargeCount": M }`
+ 
+ **Errors:** `500` — `discord_webhook_not_configured`; `502` — Discord HTTP failure
+ 
+@@ -820,11 +992,11 @@ Reads **`view_member_payment_reminders`** (overdue + due within 3 days) and post
+ 
+ ### `POST /api/admin/notifications/discord/daily-digest`
+ 
+-Posts a **daily summary** to Discord: new **`marketing_leads`** in the last 24 hours, counts for payment reminders, plus the same overdue / due-soon list as the payment-reminders route.
++Posts a **daily summary** to Discord: new **`marketing_leads`** in the last 24 hours, counts for payment reminders, the same overdue / due-soon list as the payment-reminders route, and the same **Issue a charge** section.
+ 
+ **Auth:** `x-admin-key` (shared owner key or an `owner` staff key) **or** `x-cron-secret` (when `CRON_SECRET` is configured on the API).
+ 
+-**Response:** `{ "ok": true, "posted": true, "summary": { "date", "reminderTotal", "overdueCount", "dueSoonCount", "marketingLeads24h" } }`
++**Response:** `{ "ok": true, "posted": true, "summary": { "date", "reminderTotal", "overdueCount", "dueSoonCount", "marketingLeads24h", "issueChargeCount" } }`
+ 
+ ---
+ 
+diff --git a/services/api/src/index.js b/services/api/src/index.js
+index cebd407..0857261 100644
+--- a/services/api/src/index.js
++++ b/services/api/src/index.js
+@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
+ import { createWaiverPdfRouter } from './routes/waivers/pdf.js';
+ import { registerWaiverSubmitRoute } from './services/accounts/submitWaiver.js';
+ import { registerAdminBillingCronRoutes, registerAdminBillingRoutes } from './routes/admin/billing.js';
++import { registerFinanceRosterRoutes } from './routes/admin/financeRoster.js';
+ import { registerAdminParticipantRoutes } from './routes/admin/participants.js';
+ import { registerAdminReportingRoutes } from './routes/admin/reporting.js';
+ import { registerAdminNotificationRoutes } from './routes/admin/notifications.js';
+@@ -213,6 +214,7 @@ const adminBillingRouter = express.Router();
+ adminBillingRouter.use(requireAdmin);
+ registerStaffAuthRoutes(adminBillingRouter, { supabase });
+ registerAdminBillingRoutes(adminBillingRouter, { supabase });
++registerFinanceRosterRoutes(adminBillingRouter, { supabase });
+ registerAdminParticipantRoutes(adminBillingRouter, { supabase });
+ registerAdminReportingRoutes(adminBillingRouter, { supabase });
+ registerAdminSchedulingRoutes(adminBillingRouter, { supabase });
+diff --git a/services/api/src/lib/isoDate.js b/services/api/src/lib/isoDate.js
+new file mode 100644
+index 0000000..1d7b623
+--- /dev/null
++++ b/services/api/src/lib/isoDate.js
+@@ -0,0 +1,11 @@
++const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
++
++/** True for a real calendar day in YYYY-MM-DD form. */
++export function isIsoDate(value) {
++  if (typeof value !== 'string' || !ISO_DATE.test(value)) return false;
++  const year = Number(value.slice(0, 4));
++  const month = Number(value.slice(5, 7));
++  const day = Number(value.slice(8, 10));
++  const date = new Date(Date.UTC(year, month - 1, day));
++  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
++}
+diff --git a/services/api/src/lib/staffAuth.js b/services/api/src/lib/staffAuth.js
+index 2bfbea9..ae430a4 100644
+--- a/services/api/src/lib/staffAuth.js
++++ b/services/api/src/lib/staffAuth.js
+@@ -118,6 +118,22 @@ export function rolesAllowedForRequest(method, canonicalPath) {
+     return ['owner'];
+   }
+ 
++  // Roster reads and writes are owner/finance, including GET. front_desk is 403.
++  if (
++    path === '/billing/account-roster'
++    || path.startsWith('/billing/account-roster/')
++    || path === '/billing/plans'
++    || path.startsWith('/billing/plans/')
++    || path === '/billing/subscriptions'
++    || path.startsWith('/billing/subscriptions/')
++    || path === '/billing/charges'
++    || path.startsWith('/billing/charges/')
++    || path === '/billing/household-moves'
++    || path.startsWith('/billing/household-moves/')
++  ) {
++    return ['owner', 'finance'];
++  }
++
+   if (httpMethod === 'GET' || httpMethod === 'HEAD' || httpMethod === 'OPTIONS') {
+     return [...STAFF_ROLES];
+   }
+diff --git a/services/api/src/lib/staffAuth.test.js b/services/api/src/lib/staffAuth.test.js
+index 766a413..c7ee278 100644
+--- a/services/api/src/lib/staffAuth.test.js
++++ b/services/api/src/lib/staffAuth.test.js
+@@ -39,6 +39,25 @@ describe('staffAuth helpers', () => {
+     expect(roleAllowsRequest('finance', 'GET', '/auth/me')).toBe(true);
+   });
+ 
++  it('limits finance roster routes to owner and finance', () => {
++    expect(roleAllowsRequest('finance', 'GET', '/billing/account-roster')).toBe(true);
++    expect(roleAllowsRequest('finance', 'GET', '/billing/plans')).toBe(true);
++    expect(roleAllowsRequest('finance', 'POST', '/billing/plans')).toBe(true);
++    expect(roleAllowsRequest('finance', 'POST', '/billing/subscriptions')).toBe(true);
++    expect(roleAllowsRequest('finance', 'PATCH', '/billing/subscriptions/sub-1')).toBe(true);
++    expect(roleAllowsRequest('finance', 'POST', '/billing/charges')).toBe(true);
++    expect(roleAllowsRequest('finance', 'POST', '/billing/household-moves')).toBe(true);
++    expect(roleAllowsRequest('front_desk', 'GET', '/billing/account-roster')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'GET', '/billing/plans')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'POST', '/billing/plans')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'POST', '/billing/subscriptions')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'PATCH', '/billing/subscriptions/sub-1')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'POST', '/billing/charges')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'POST', '/billing/household-moves')).toBe(false);
++    expect(roleAllowsRequest('front_desk', 'GET', '/billing/personal-finance-entries')).toBe(true);
++    expect(roleAllowsRequest('front_desk', 'POST', '/billing/record-payment')).toBe(true);
++  });
++
+   it('allows front_desk desk writes and record-payment, not refunds', () => {
+     expect(roleAllowsRequest('front_desk', 'POST', '/scheduling/sessions')).toBe(true);
+     expect(roleAllowsRequest('front_desk', 'POST', '/billing/record-payment')).toBe(true);
+diff --git a/services/api/src/routes/admin/billing.js b/services/api/src/routes/admin/billing.js
+index 36bc936..5e9b766 100644
+--- a/services/api/src/routes/admin/billing.js
++++ b/services/api/src/routes/admin/billing.js
+@@ -6,6 +6,7 @@
+  */
+ 
+ import { BillingService } from '../../services/billing/BillingService.js';
++import { isIsoDate } from '../../lib/isoDate.js';
+ 
+ const PAYMENT_METHODS = new Set(['cash', 'card', 'cashapp', 'venmo', 'paypal', 'zelle', 'other']);
+ const RECORD_PAYMENT_CHARGE_ERRORS = new Set([
+@@ -269,6 +270,8 @@ export function registerAdminBillingRoutes(router, { supabase }) {
+         create_initial_charge,
+         notes,
+         created_by,
++        expected_pay_on,
++        arm_automatic_billing,
+       } = req.body || {};
+ 
+       if (!participant_id || typeof participant_id !== 'string') {
+@@ -292,6 +295,15 @@ export function registerAdminBillingRoutes(router, { supabase }) {
+       if (notes != null && typeof notes !== 'string') {
+         return res.status(400).json({ ok: false, error: 'invalid_notes' });
+       }
++      if (expected_pay_on != null && !isIsoDate(expected_pay_on)) {
++        return res.status(400).json({ ok: false, error: 'invalid_expected_pay_on' });
++      }
++      if (arm_automatic_billing != null && typeof arm_automatic_billing !== 'boolean') {
++        return res.status(400).json({ ok: false, error: 'invalid_arm_automatic_billing' });
++      }
++      if (arm_automatic_billing === false && (typeof account_id !== 'string' || !account_id.trim())) {
++        return res.status(400).json({ ok: false, error: 'account_id_required' });
++      }
+ 
+       let shouldCreateInitialCharge;
+       try {
+@@ -304,7 +316,7 @@ export function registerAdminBillingRoutes(router, { supabase }) {
+         return res.status(400).json({ ok: false, error: error?.message || 'plan_lookup_failed' });
+       }
+ 
+-      const { data, error } = await supabase.rpc('create_subscription', {
++      const rpcArgs = {
+         p_participant_id: participant_id.trim(),
+         p_plan_definition_id: plan_definition_id.trim(),
+         p_starts_at: starts_at || null,
+@@ -313,7 +325,19 @@ export function registerAdminBillingRoutes(router, { supabase }) {
+         p_create_initial_charge: shouldCreateInitialCharge,
+         p_notes: notes || null,
+         p_created_by: typeof created_by === 'string' && created_by.trim() ? created_by.trim() : 'admin_api',
+-      });
++      };
++      if (arm_automatic_billing === false) {
++        rpcArgs.p_arm_automatic_billing = false;
++        rpcArgs.p_require_explicit_account = true;
++        rpcArgs.p_account_id = account_id.trim();
++      } else if (arm_automatic_billing === true) {
++        rpcArgs.p_arm_automatic_billing = true;
++      }
++      if (typeof expected_pay_on === 'string') {
++        rpcArgs.p_expected_pay_on = expected_pay_on;
++      }
++
++      const { data, error } = await supabase.rpc('create_subscription', rpcArgs);
+ 
+       if (error) {
+         console.error('create_subscription', error);
+diff --git a/services/api/src/routes/admin/financeRoster.js b/services/api/src/routes/admin/financeRoster.js
+new file mode 100644
+index 0000000..85c9740
+--- /dev/null
++++ b/services/api/src/routes/admin/financeRoster.js
+@@ -0,0 +1,318 @@
++/**
++ * Finance roster reads and writes. Mounted behind requireAdmin.
++ * front_desk is rejected by the staff role matrix before these handlers run.
++ */
++
++import { isIsoDate } from '../../lib/isoDate.js';
++
++const PLAN_CATEGORIES = new Set(['group', 'private', 'hybrid']);
++const BILLING_CADENCES = new Set(['per_session', 'monthly', 'contract', 'custom']);
++const MEMBER_ROLES = new Set(['member', 'payer', 'guardian']);
++
++function rpcMessage(error) {
++  const message = String(error?.message || '').trim();
++  return message || 'request_failed';
++}
++
++function asObject(data) {
++  if (data && typeof data === 'object' && !Array.isArray(data)) return data;
++  if (typeof data === 'string') {
++    try {
++      const parsed = JSON.parse(data);
++      if (parsed && typeof parsed === 'object') return parsed;
++    } catch {
++      return {};
++    }
++  }
++  return {};
++}
++
++function parseLimit(raw) {
++  if (raw == null || raw === '') return 50;
++  const parsed = Number.parseInt(String(raw), 10);
++  if (!Number.isFinite(parsed)) return null;
++  return parsed;
++}
++
++function parseOffset(raw) {
++  if (raw == null || raw === '') return 0;
++  const parsed = Number.parseInt(String(raw), 10);
++  if (!Number.isFinite(parsed)) return null;
++  return parsed;
++}
++
++/**
++ * @param {import('express').Router} router
++ * @param {{ supabase: import('@supabase/supabase-js').SupabaseClient | null }} ctx
++ */
++export function registerFinanceRosterRoutes(router, { supabase }) {
++  router.get('/billing/account-roster', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const limit = parseLimit(req.query.limit);
++      const offset = parseOffset(req.query.offset);
++      if (limit == null || limit < 1 || limit > 200) {
++        return res.status(400).json({ ok: false, error: 'invalid_limit' });
++      }
++      if (offset == null || offset < 0) {
++        return res.status(400).json({ ok: false, error: 'invalid_offset' });
++      }
++      const status = typeof req.query.status === 'string' && req.query.status.length
++        ? req.query.status
++        : 'active';
++      if (!['active', 'inactive', 'all'].includes(status)) {
++        return res.status(400).json({ ok: false, error: 'invalid_status' });
++      }
++      const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
++      if (q && q.length < 2) {
++        return res.status(400).json({ ok: false, error: 'query_min_length_2' });
++      }
++
++      const { data, error } = await supabase.rpc('list_account_roster', {
++        p_limit: limit,
++        p_offset: offset,
++        p_status: status,
++        p_query: q || null,
++      });
++      if (error) return res.status(400).json({ ok: false, error: rpcMessage(error) });
++      const rows = Array.isArray(asObject(data).rows) ? asObject(data).rows : [];
++      return res.json({ ok: true, limit, offset, rowCount: rows.length, rows });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++
++  router.get('/billing/plans', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const active = typeof req.query.active === 'string' ? req.query.active : 'true';
++      if (!['true', 'false', 'all'].includes(active)) {
++        return res.status(400).json({ ok: false, error: 'invalid_active' });
++      }
++      let query = supabase
++        .from('plan_definitions')
++        .select('id, name, plan_category, billing_cadence, price_cents, currency, is_active');
++      if (active === 'true') query = query.eq('is_active', true);
++      if (active === 'false') query = query.eq('is_active', false);
++      const { data, error } = await query.order('name', { ascending: true });
++      if (error) return res.status(400).json({ ok: false, error: error.message });
++      const rows = (data || []).map((row) => ({
++        plan_definition_id: row.id,
++        name: row.name,
++        plan_category: row.plan_category,
++        billing_cadence: row.billing_cadence,
++        price_cents: row.price_cents,
++        currency: row.currency || 'USD',
++        is_active: row.is_active,
++      }));
++      return res.json({ ok: true, rows });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++
++  router.post('/billing/plans', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const {
++        name,
++        description,
++        plan_category,
++        billing_cadence,
++        price_cents,
++        copy_access_from_plan_id,
++      } = req.body || {};
++      if (typeof name !== 'string' || !name.trim()) {
++        return res.status(400).json({ ok: false, error: 'name_required' });
++      }
++      if (description != null && typeof description !== 'string') {
++        return res.status(400).json({ ok: false, error: 'invalid_description' });
++      }
++      if (!PLAN_CATEGORIES.has(plan_category)) {
++        return res.status(400).json({ ok: false, error: 'invalid_plan_category' });
++      }
++      if (!BILLING_CADENCES.has(billing_cadence)) {
++        return res.status(400).json({ ok: false, error: 'invalid_billing_cadence' });
++      }
++      if (typeof price_cents !== 'number' || !Number.isInteger(price_cents) || price_cents < 0) {
++        return res.status(400).json({ ok: false, error: 'invalid_price_cents' });
++      }
++      if (typeof copy_access_from_plan_id !== 'string' || !copy_access_from_plan_id.trim()) {
++        return res.status(400).json({ ok: false, error: 'copy_access_from_plan_id_required' });
++      }
++
++      const { data, error } = await supabase.rpc('create_catalog_plan', {
++        p_name: name.trim(),
++        p_description: description ?? null,
++        p_plan_category: plan_category,
++        p_billing_cadence: billing_cadence,
++        p_price_cents: price_cents,
++        p_copy_access_from_plan_id: copy_access_from_plan_id.trim(),
++      });
++      if (error) return res.status(400).json({ ok: false, error: rpcMessage(error) });
++      const plan = asObject(data).plan;
++      if (!plan) return res.status(500).json({ ok: false, error: 'server_error' });
++      return res.json({ ok: true, plan });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++
++  router.patch('/billing/subscriptions/:subscriptionId', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const subscriptionId = typeof req.params.subscriptionId === 'string'
++        ? req.params.subscriptionId.trim()
++        : '';
++      if (!subscriptionId) {
++        return res.status(400).json({ ok: false, error: 'subscription_not_found' });
++      }
++      const expectedPayOn = req.body?.expected_pay_on;
++      if (!isIsoDate(expectedPayOn)) {
++        return res.status(400).json({ ok: false, error: 'invalid_expected_pay_on' });
++      }
++      const keys = req.body && typeof req.body === 'object' ? Object.keys(req.body) : [];
++      if (keys.some((key) => key !== 'expected_pay_on')) {
++        return res.status(400).json({ ok: false, error: 'invalid_expected_pay_on' });
++      }
++
++      const { data, error } = await supabase.rpc('set_subscription_expected_pay_on', {
++        p_subscription_id: subscriptionId,
++        p_expected_pay_on: expectedPayOn,
++      });
++      if (error) return res.status(400).json({ ok: false, error: rpcMessage(error) });
++      const result = asObject(data);
++      return res.json({
++        ok: true,
++        subscription_id: result.subscription_id ?? subscriptionId,
++        expected_pay_on: result.expected_pay_on ?? expectedPayOn,
++      });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++
++  router.post('/billing/charges', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const {
++        account_id,
++        subscription_id,
++        amount_cents,
++        due_at,
++        coverage_start,
++        coverage_end,
++        next_expected_pay_on,
++      } = req.body || {};
++      if (typeof subscription_id !== 'string' || !subscription_id.trim()) {
++        return res.status(400).json({ ok: false, error: 'subscription_not_found' });
++      }
++      if (typeof account_id !== 'string' || !account_id.trim()) {
++        return res.status(400).json({ ok: false, error: 'charge_account_mismatch' });
++      }
++      if (typeof amount_cents !== 'number' || !Number.isInteger(amount_cents) || amount_cents <= 0) {
++        return res.status(400).json({ ok: false, error: 'invalid_amount_cents' });
++      }
++      if (!isIsoDate(due_at)) {
++        return res.status(400).json({ ok: false, error: 'invalid_due_at' });
++      }
++      if (!isIsoDate(next_expected_pay_on)) {
++        return res.status(400).json({ ok: false, error: 'invalid_expected_pay_on' });
++      }
++      if (coverage_start != null && !isIsoDate(coverage_start)) {
++        return res.status(400).json({ ok: false, error: 'invalid_due_at' });
++      }
++      if (coverage_end != null && !isIsoDate(coverage_end)) {
++        return res.status(400).json({ ok: false, error: 'coverage_end_before_start' });
++      }
++      const resolvedStart = coverage_start || due_at;
++      const resolvedEnd = coverage_end || shiftIsoDate(next_expected_pay_on, -1);
++      if (resolvedEnd < resolvedStart) {
++        return res.status(400).json({ ok: false, error: 'coverage_end_before_start' });
++      }
++
++      const { data, error } = await supabase.rpc('issue_manual_subscription_charge', {
++        p_account_id: account_id.trim(),
++        p_subscription_id: subscription_id.trim(),
++        p_amount_cents: amount_cents,
++        p_due_at: due_at,
++        p_next_expected_pay_on: next_expected_pay_on,
++        p_coverage_start: coverage_start || null,
++        p_coverage_end: coverage_end || null,
++      });
++      if (error) return res.status(400).json({ ok: false, error: rpcMessage(error) });
++      const result = asObject(data);
++      return res.json({
++        ok: true,
++        charge_id: result.charge_id ?? null,
++        account_id: result.account_id ?? account_id,
++        subscription_id: result.subscription_id ?? subscription_id,
++        amount_cents: result.amount_cents ?? amount_cents,
++        due_at: result.due_at ?? due_at,
++        expected_pay_on: result.expected_pay_on ?? next_expected_pay_on,
++      });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++
++  router.post('/billing/household-moves', async (req, res) => {
++    try {
++      if (!supabase) return res.status(500).json({ ok: false, error: 'supabase_not_configured' });
++      const {
++        participant_id,
++        destination_account_id,
++        role,
++        deactivate_source_account_id,
++      } = req.body || {};
++      if (typeof participant_id !== 'string' || !participant_id.trim()) {
++        return res.status(400).json({ ok: false, error: 'participant_id_required' });
++      }
++      if (typeof destination_account_id !== 'string' || !destination_account_id.trim()) {
++        return res.status(400).json({ ok: false, error: 'destination_account_id_required' });
++      }
++      if (!MEMBER_ROLES.has(role)) {
++        return res.status(400).json({ ok: false, error: 'invalid_role' });
++      }
++      if (
++        deactivate_source_account_id != null
++        && (typeof deactivate_source_account_id !== 'string' || !deactivate_source_account_id.trim())
++      ) {
++        return res.status(400).json({ ok: false, error: 'source_account_required_member' });
++      }
++
++      const { data, error } = await supabase.rpc('move_household_member', {
++        p_participant_id: participant_id.trim(),
++        p_destination_account_id: destination_account_id.trim(),
++        p_role: role,
++        p_deactivate_source_account_id: typeof deactivate_source_account_id === 'string'
++          ? deactivate_source_account_id.trim()
++          : null,
++      });
++      if (error) return res.status(400).json({ ok: false, error: rpcMessage(error) });
++      const result = asObject(data);
++      return res.json({
++        ok: true,
++        participant_id: result.participant_id ?? participant_id,
++        destination_account_id: result.destination_account_id ?? destination_account_id,
++        role: result.role ?? role,
++        membership: result.membership,
++        deactivated_account_id: result.deactivated_account_id ?? null,
++      });
++    } catch (e) {
++      console.error(e);
++      return res.status(500).json({ ok: false, error: 'server_error' });
++    }
++  });
++}
++
++function shiftIsoDate(iso, days) {
++  const [year, month, day] = iso.split('-').map(Number);
++  const date = new Date(Date.UTC(year, month - 1, day + days));
++  return date.toISOString().slice(0, 10);
++}
+diff --git a/services/api/src/routes/admin/financeRoster.test.js b/services/api/src/routes/admin/financeRoster.test.js
+new file mode 100644
+index 0000000..0b5b9bf
+--- /dev/null
++++ b/services/api/src/routes/admin/financeRoster.test.js
+@@ -0,0 +1,304 @@
++import express from 'express';
++import request from 'supertest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { requireAdmin } from '../../lib/requireAdmin.js';
++import { registerFinanceRosterRoutes } from './financeRoster.js';
++
++const ADMIN_KEY = 'api-test-roster-admin-key';
++const ACCOUNT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
++const SUBSCRIPTION_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
++const PARTICIPANT_ID = '22222222-2222-4222-8222-222222222222';
++const PLAN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++const CHARGE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
++const SOURCE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
++
++function createApp(supabase) {
++  const app = express();
++  app.use(express.json());
++  const router = express.Router();
++  router.use(requireAdmin);
++  registerFinanceRosterRoutes(router, { supabase });
++  app.use('/api/admin', router);
++  return app;
++}
++
++function auth(req) {
++  return req.set('x-admin-key', ADMIN_KEY);
++}
++
++describe('finance roster routes', () => {
++  let previousAdminKey;
++
++  beforeEach(() => {
++    previousAdminKey = process.env.ADMIN_API_KEY;
++    process.env.ADMIN_API_KEY = ADMIN_KEY;
++  });
++
++  afterEach(() => {
++    if (previousAdminKey === undefined) delete process.env.ADMIN_API_KEY;
++    else process.env.ADMIN_API_KEY = previousAdminKey;
++  });
++
++  it('loads a roster page from list_account_roster', async () => {
++    const rows = [{
++      account_id: ACCOUNT_ID,
++      status: 'active',
++      primary_contact_name: 'Ada',
++      members: [],
++    }];
++    const supabase = {
++      rpc: vi.fn(async () => ({ data: { rows }, error: null })),
++    };
++    const res = await auth(
++      request(createApp(supabase)).get('/api/admin/billing/account-roster?limit=50&offset=0&status=active'),
++    );
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({ ok: true, limit: 50, offset: 0, rowCount: 1, rows });
++    expect(supabase.rpc).toHaveBeenCalledWith('list_account_roster', {
++      p_limit: 50,
++      p_offset: 0,
++      p_status: 'active',
++      p_query: null,
++    });
++  });
++
++  it('rejects a one-character roster search', async () => {
++    const supabase = { rpc: vi.fn() };
++    const res = await auth(request(createApp(supabase)).get('/api/admin/billing/account-roster?q=a'));
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'query_min_length_2' });
++    expect(supabase.rpc).not.toHaveBeenCalled();
++  });
++
++  it('lists active plans for the picker', async () => {
++    const builder = {
++      select: vi.fn(() => builder),
++      eq: vi.fn(() => builder),
++      order: vi.fn(async () => ({
++        data: [{
++          id: PLAN_ID,
++          name: 'Core Group Plan',
++          plan_category: 'group',
++          billing_cadence: 'monthly',
++          price_cents: 15000,
++          currency: 'USD',
++          is_active: true,
++        }],
++        error: null,
++      })),
++    };
++    const supabase = { from: vi.fn(() => builder) };
++    const res = await auth(request(createApp(supabase)).get('/api/admin/billing/plans?active=true'));
++    expect(res.status).toBe(200);
++    expect(res.body.rows).toEqual([{
++      plan_definition_id: PLAN_ID,
++      name: 'Core Group Plan',
++      plan_category: 'group',
++      billing_cadence: 'monthly',
++      price_cents: 15000,
++      currency: 'USD',
++      is_active: true,
++    }]);
++    expect(builder.eq).toHaveBeenCalledWith('is_active', true);
++  });
++
++  it('copies plan access and enrolls nobody through create_catalog_plan', async () => {
++    const plan = {
++      plan_definition_id: PLAN_ID,
++      name: 'Weekday plus open mat',
++      plan_category: 'group',
++      billing_cadence: 'monthly',
++      price_cents: 13500,
++      currency: 'USD',
++      is_active: true,
++      access_copied_from_plan_id: SOURCE_ID,
++      entitlement_count: 2,
++    };
++    const supabase = {
++      rpc: vi.fn(async () => ({ data: { plan }, error: null })),
++    };
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/plans')
++        .send({
++          name: 'Weekday plus open mat',
++          plan_category: 'group',
++          billing_cadence: 'monthly',
++          price_cents: 13500,
++          copy_access_from_plan_id: SOURCE_ID,
++        }),
++    );
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({ ok: true, plan });
++    expect(supabase.rpc).toHaveBeenCalledWith('create_catalog_plan', {
++      p_name: 'Weekday plus open mat',
++      p_description: null,
++      p_plan_category: 'group',
++      p_billing_cadence: 'monthly',
++      p_price_cents: 13500,
++      p_copy_access_from_plan_id: SOURCE_ID,
++    });
++  });
++
++  it('rejects a plan create that is missing its access source', async () => {
++    const supabase = { rpc: vi.fn() };
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/plans')
++        .send({
++          name: 'Negotiated',
++          plan_category: 'group',
++          billing_cadence: 'monthly',
++          price_cents: 13500,
++        }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'copy_access_from_plan_id_required' });
++    expect(supabase.rpc).not.toHaveBeenCalled();
++  });
++
++  it('patches only expected_pay_on', async () => {
++    const supabase = {
++      from: vi.fn(() => {
++        throw new Error('date change must not query tables');
++      }),
++      rpc: vi.fn(async () => ({
++        data: { subscription_id: SUBSCRIPTION_ID, expected_pay_on: '2026-11-02' },
++        error: null,
++      })),
++    };
++    const res = await auth(
++      request(createApp(supabase))
++        .patch(`/api/admin/billing/subscriptions/${SUBSCRIPTION_ID}`)
++        .send({ expected_pay_on: '2026-11-02' }),
++    );
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({
++      ok: true,
++      subscription_id: SUBSCRIPTION_ID,
++      expected_pay_on: '2026-11-02',
++    });
++    expect(supabase.rpc).toHaveBeenCalledWith('set_subscription_expected_pay_on', {
++      p_subscription_id: SUBSCRIPTION_ID,
++      p_expected_pay_on: '2026-11-02',
++    });
++    expect(supabase.from).not.toHaveBeenCalled();
++  });
++
++  it('rejects a date change that includes another column', async () => {
++    const supabase = { rpc: vi.fn(), from: vi.fn() };
++    const res = await auth(
++      request(createApp(supabase))
++        .patch(`/api/admin/billing/subscriptions/${SUBSCRIPTION_ID}`)
++        .send({ expected_pay_on: '2026-11-02', automatic_billing_starts_at: '2026-11-01' }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'invalid_expected_pay_on' });
++    expect(supabase.rpc).not.toHaveBeenCalled();
++  });
++
++  it('issues one manual charge for the confirmed amount and next pay date', async () => {
++    const supabase = {
++      from: vi.fn(() => {
++        throw new Error('issue charge must not look up the catalog price');
++      }),
++      rpc: vi.fn(async () => ({
++        data: {
++          charge_id: CHARGE_ID,
++          account_id: ACCOUNT_ID,
++          subscription_id: SUBSCRIPTION_ID,
++          amount_cents: 24975,
++          due_at: '2026-10-20',
++          expected_pay_on: '2026-11-20',
++        },
++        error: null,
++      })),
++    };
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/charges')
++        .send({
++          account_id: ACCOUNT_ID,
++          subscription_id: SUBSCRIPTION_ID,
++          amount_cents: 24975,
++          due_at: '2026-10-20',
++          next_expected_pay_on: '2026-11-20',
++        }),
++    );
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({
++      ok: true,
++      charge_id: CHARGE_ID,
++      account_id: ACCOUNT_ID,
++      subscription_id: SUBSCRIPTION_ID,
++      amount_cents: 24975,
++      due_at: '2026-10-20',
++      expected_pay_on: '2026-11-20',
++    });
++    expect(supabase.rpc).toHaveBeenCalledWith('issue_manual_subscription_charge', {
++      p_account_id: ACCOUNT_ID,
++      p_subscription_id: SUBSCRIPTION_ID,
++      p_amount_cents: 24975,
++      p_due_at: '2026-10-20',
++      p_next_expected_pay_on: '2026-11-20',
++      p_coverage_start: null,
++      p_coverage_end: null,
++    });
++    expect(supabase.from).not.toHaveBeenCalled();
++  });
++
++  it('moves a household member and can ask to deactivate the source', async () => {
++    const supabase = {
++      rpc: vi.fn(async () => ({
++        data: {
++          participant_id: PARTICIPANT_ID,
++          destination_account_id: ACCOUNT_ID,
++          role: 'member',
++          membership: 'created',
++          deactivated_account_id: SOURCE_ID,
++        },
++        error: null,
++      })),
++    };
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/household-moves')
++        .send({
++          participant_id: PARTICIPANT_ID,
++          destination_account_id: ACCOUNT_ID,
++          role: 'member',
++          deactivate_source_account_id: SOURCE_ID,
++        }),
++    );
++    expect(res.status).toBe(200);
++    expect(res.body.membership).toBe('created');
++    expect(res.body.deactivated_account_id).toBe(SOURCE_ID);
++    expect(supabase.rpc).toHaveBeenCalledWith('move_household_member', {
++      p_participant_id: PARTICIPANT_ID,
++      p_destination_account_id: ACCOUNT_ID,
++      p_role: 'member',
++      p_deactivate_source_account_id: SOURCE_ID,
++    });
++  });
++
++  it('returns source_account_has_financial_history from the move RPC', async () => {
++    const supabase = {
++      rpc: vi.fn(async () => ({
++        data: null,
++        error: { message: 'source_account_has_financial_history' },
++      })),
++    };
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/household-moves')
++        .send({
++          participant_id: PARTICIPANT_ID,
++          destination_account_id: ACCOUNT_ID,
++          role: 'payer',
++          deactivate_source_account_id: SOURCE_ID,
++        }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'source_account_has_financial_history' });
++  });
++});
+diff --git a/services/api/src/routes/admin/notifications.js b/services/api/src/routes/admin/notifications.js
+index e83bc2b..d1c763e 100644
+--- a/services/api/src/routes/admin/notifications.js
++++ b/services/api/src/routes/admin/notifications.js
+@@ -6,6 +6,32 @@ const fmtMoney = (n) => {
+   return x.toFixed(2);
+ };
+ 
++const fmtCents = (cents) => {
++  const x = Number(cents);
++  if (!Number.isFinite(x)) return '?';
++  return (x / 100).toFixed(2);
++};
++
++const buildIssueChargeLines = (rows) => {
++  const lines = [];
++  lines.push(`**Issue a charge (${rows.length})**`);
++  if (!rows.length) lines.push('— none');
++  else {
++    for (const row of rows) {
++      lines.push(
++        `• ${row.full_name} — $${fmtCents(row.price_cents)} expected ${row.expected_pay_on} (${row.plan_name})`,
++      );
++    }
++  }
++  return lines.join('\n');
++};
++
++async function loadIssueChargeReminders(supabase) {
++  const { data, error } = await supabase.rpc('list_issue_charge_reminders');
++  if (error) return { error: error.message, rows: [] };
++  return { error: null, rows: Array.isArray(data) ? data : [] };
++}
++
+ const buildReminderLines = (rows) => {
+   const overdue = (rows || []).filter((r) => r.reminder_bucket === 'overdue');
+   const dueSoon = (rows || []).filter((r) => r.reminder_bucket === 'due_soon');
+@@ -48,12 +74,20 @@ export function registerAdminNotificationRoutes(router, { supabase }) {
+         .order('next_due_date', { ascending: true });
+       if (error) return res.status(400).json({ ok: false, error: error.message });
+ 
++      const issue = await loadIssueChargeReminders(supabase);
++      if (issue.error) return res.status(400).json({ ok: false, error: issue.error });
++
+       const rows = data ?? [];
+       const header = '**Payment reminders** (overdue + due in 3 days)\n';
+       const body = buildReminderLines(rows);
+-      const content = `${header}\n${body}`;
++      const content = `${header}\n${body}\n\n${buildIssueChargeLines(issue.rows)}`;
+       await postDiscordWebhook(webhookUrl, content);
+-      return res.json({ ok: true, posted: true, rowCount: rows.length });
++      return res.json({
++        ok: true,
++        posted: true,
++        rowCount: rows.length,
++        issueChargeCount: issue.rows.length,
++      });
+     } catch (e) {
+       console.error(e);
+       const msg = e instanceof Error ? e.message : 'server_error';
+@@ -78,6 +112,9 @@ export function registerAdminNotificationRoutes(router, { supabase }) {
+         .order('next_due_date', { ascending: true });
+       if (remErr) return res.status(400).json({ ok: false, error: remErr.message });
+ 
++      const issue = await loadIssueChargeReminders(supabase);
++      if (issue.error) return res.status(400).json({ ok: false, error: issue.error });
++
+       const rows = reminderRows ?? [];
+       const overdue = rows.filter((r) => r.reminder_bucket === 'overdue');
+       const dueSoon = rows.filter((r) => r.reminder_bucket === 'due_soon');
+@@ -91,13 +128,17 @@ export function registerAdminNotificationRoutes(router, { supabase }) {
+       if (!leadErr && typeof count === 'number') leads24h = count;
+ 
+       const reminderBlock = buildReminderLines(rows);
++      const issueBlock = buildIssueChargeLines(issue.rows);
+       const digest = [
+         `**Temple Underground — daily digest (${today})**`,
+         '',
+         `New marketing leads (24h): **${leads24h}**`,
+         `Open payment reminders: **${rows.length}** (${overdue.length} overdue, ${dueSoon.length} due soon)`,
++        `Issue a charge: **${issue.rows.length}**`,
+         '',
+         reminderBlock,
++        '',
++        issueBlock,
+       ].join('\n');
+ 
+       await postDiscordWebhook(webhookUrl, digest);
+@@ -110,6 +151,7 @@ export function registerAdminNotificationRoutes(router, { supabase }) {
+           overdueCount: overdue.length,
+           dueSoonCount: dueSoon.length,
+           marketingLeads24h: leads24h,
++          issueChargeCount: issue.rows.length,
+         },
+       });
+     } catch (e) {
+diff --git a/services/api/src/routes/admin/notifications.test.js b/services/api/src/routes/admin/notifications.test.js
+new file mode 100644
+index 0000000..2c130c9
+--- /dev/null
++++ b/services/api/src/routes/admin/notifications.test.js
+@@ -0,0 +1,128 @@
++import express from 'express';
++import request from 'supertest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { requireAdmin } from '../../lib/requireAdmin.js';
++import { createRequireAdminOrCron } from '../../lib/requireAdminOrCron.js';
++import { registerAdminNotificationRoutes } from './notifications.js';
++
++const ADMIN_KEY = 'api-test-discord-admin-key';
++const WEBHOOK = 'https://discord.test/webhook';
++
++function createApp(supabase) {
++  const app = express();
++  app.use(express.json());
++  const router = express.Router();
++  router.use(createRequireAdminOrCron(requireAdmin));
++  registerAdminNotificationRoutes(router, { supabase });
++  app.use('/api/admin', router);
++  return app;
++}
++
++function reminderBuilder(rows) {
++  const builder = {
++    select: vi.fn(() => builder),
++    order: vi.fn(async () => ({ data: rows, error: null })),
++  };
++  return builder;
++}
++
++function leadBuilder(count) {
++  const builder = {
++    select: vi.fn(() => builder),
++    gte: vi.fn(async () => ({ count, error: null })),
++  };
++  return builder;
++}
++
++function createSupabase({ reminders, issueCharges, leadCount = 0 }) {
++  return {
++    from: vi.fn((table) => {
++      if (table === 'view_member_payment_reminders') return reminderBuilder(reminders);
++      if (table === 'marketing_leads') return leadBuilder(leadCount);
++      throw new Error(`unexpected table ${table}`);
++    }),
++    rpc: vi.fn(async (name) => {
++      if (name !== 'list_issue_charge_reminders') throw new Error(name);
++      return { data: issueCharges, error: null };
++    }),
++  };
++}
++
++describe('discord payment reminders', () => {
++  let previousAdminKey;
++  let previousWebhook;
++
++  beforeEach(() => {
++    previousAdminKey = process.env.ADMIN_API_KEY;
++    previousWebhook = process.env.DISCORD_WEBHOOK_URL;
++    process.env.ADMIN_API_KEY = ADMIN_KEY;
++    process.env.DISCORD_WEBHOOK_URL = WEBHOOK;
++    vi.stubGlobal('fetch', vi.fn(async () => ({
++      ok: true,
++      status: 204,
++      text: async () => '',
++      headers: { get: () => null },
++    })));
++  });
++
++  afterEach(() => {
++    if (previousAdminKey === undefined) delete process.env.ADMIN_API_KEY;
++    else process.env.ADMIN_API_KEY = previousAdminKey;
++    if (previousWebhook === undefined) delete process.env.DISCORD_WEBHOOK_URL;
++    else process.env.DISCORD_WEBHOOK_URL = previousWebhook;
++    vi.unstubAllGlobals();
++  });
++
++  it('keeps an expected-pay-only person out of the 3-day charge count and in issue_charge', async () => {
++    const supabase = createSupabase({
++      reminders: [],
++      issueCharges: [{
++        full_name: 'Natalie',
++        price_cents: 15000,
++        expected_pay_on: '2026-10-20',
++        plan_name: 'Core Group Plan',
++      }],
++    });
++    const res = await request(createApp(supabase))
++      .post('/api/admin/notifications/discord/payment-reminders')
++      .set('x-admin-key', ADMIN_KEY);
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({ ok: true, posted: true, rowCount: 0, issueChargeCount: 1 });
++    const posted = JSON.parse(fetch.mock.calls[0][1].body).content;
++    expect(posted).toContain('**Overdue (0)**');
++    expect(posted).toContain('**Due soon (0)**');
++    expect(posted).toContain('**Issue a charge (1)**');
++    expect(posted).toContain('Natalie — $150.00 expected 2026-10-20 (Core Group Plan)');
++    expect(supabase.rpc).toHaveBeenCalledWith('list_issue_charge_reminders');
++    expect(supabase.from).toHaveBeenCalledWith('view_member_payment_reminders');
++  });
++
++  it('adds the issue-a-charge section to the daily digest', async () => {
++    const supabase = createSupabase({
++      reminders: [{
++        name: 'William',
++        next_due_date: '2026-10-14',
++        days_late: 2,
++        reminder_bucket: 'overdue',
++        actual_price: 150,
++      }],
++      issueCharges: [{
++        full_name: 'Natalie',
++        price_cents: 15000,
++        expected_pay_on: '2026-10-18',
++        plan_name: 'Core Group Plan',
++      }],
++      leadCount: 1,
++    });
++    const res = await request(createApp(supabase))
++      .post('/api/admin/notifications/discord/daily-digest')
++      .set('x-admin-key', ADMIN_KEY);
++    expect(res.status).toBe(200);
++    expect(res.body.summary.reminderTotal).toBe(1);
++    expect(res.body.summary.issueChargeCount).toBe(1);
++    const posted = JSON.parse(fetch.mock.calls[0][1].body).content;
++    expect(posted).toContain('William — $150.00 due 2026-10-14');
++    expect(posted).toContain('**Issue a charge (1)**');
++    expect(posted).toContain('Natalie — $150.00 expected 2026-10-18 (Core Group Plan)');
++  });
++});
+diff --git a/services/api/src/routes/admin/subscriptions.test.js b/services/api/src/routes/admin/subscriptions.test.js
+index ae7f814..eee49fe 100644
+--- a/services/api/src/routes/admin/subscriptions.test.js
++++ b/services/api/src/routes/admin/subscriptions.test.js
+@@ -240,6 +240,129 @@ describe('POST /api/admin/billing/subscriptions', () => {
+     });
+     expect(supabase.from).not.toHaveBeenCalled();
+   });
++
++  it('enrolls without a charge or automatic billing when the roster sends both flags false', async () => {
++    const supabase = createSupabase({
++      rpcResult: {
++        data: {
++          subscription_id: SUBSCRIPTION_ID,
++          account_id: ACCOUNT_ID,
++          participant_id: PARTICIPANT_ID,
++          plan_definition_id: PLAN_ID,
++          initial_charge_id: null,
++          automatic_billing_starts_at: null,
++        },
++        error: null,
++      },
++    });
++
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/subscriptions')
++        .send({
++          ...validBody,
++          account_id: ACCOUNT_ID,
++          starts_at: '2026-10-16',
++          expected_pay_on: '2026-10-20',
++          create_initial_charge: false,
++          arm_automatic_billing: false,
++        }),
++    );
++
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({
++      ok: true,
++      subscription_id: SUBSCRIPTION_ID,
++      account_id: ACCOUNT_ID,
++      participant_id: PARTICIPANT_ID,
++      plan_definition_id: PLAN_ID,
++      initial_charge_id: null,
++      automatic_billing_starts_at: null,
++    });
++    expect(supabase.rpc).toHaveBeenCalledWith('create_subscription', {
++      p_participant_id: PARTICIPANT_ID,
++      p_plan_definition_id: PLAN_ID,
++      p_starts_at: '2026-10-16',
++      p_ends_at: null,
++      p_account_id: ACCOUNT_ID,
++      p_create_initial_charge: false,
++      p_notes: null,
++      p_created_by: 'admin_api',
++      p_arm_automatic_billing: false,
++      p_require_explicit_account: true,
++      p_expected_pay_on: '2026-10-20',
++    });
++  });
++
++  it('requires account_id when automatic billing is explicitly disarmed', async () => {
++    const supabase = createSupabase();
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/subscriptions')
++        .send({
++          ...validBody,
++          create_initial_charge: false,
++          arm_automatic_billing: false,
++          expected_pay_on: '2026-10-20',
++        }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'account_id_required' });
++    expect(supabase.rpc).not.toHaveBeenCalled();
++  });
++
++  it('omits the disarm flag so paid monthly enrollment keeps the generator anchor', async () => {
++    const supabase = createSupabase({
++      rpcResult: {
++        data: {
++          subscription_id: SUBSCRIPTION_ID,
++          account_id: ACCOUNT_ID,
++          participant_id: PARTICIPANT_ID,
++          plan_definition_id: PLAN_ID,
++          initial_charge_id: null,
++          automatic_billing_starts_at: '2026-11-01',
++        },
++        error: null,
++      },
++    });
++
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/subscriptions')
++        .send({
++          ...validBody,
++          account_id: ACCOUNT_ID,
++          create_initial_charge: false,
++        }),
++    );
++
++    expect(res.status).toBe(200);
++    expect(res.body.automatic_billing_starts_at).toBe('2026-11-01');
++    const args = supabase.rpc.mock.calls[0][1];
++    expect(args.p_create_initial_charge).toBe(false);
++    expect(args).not.toHaveProperty('p_arm_automatic_billing');
++    expect(args).not.toHaveProperty('p_require_explicit_account');
++    expect(args).not.toHaveProperty('p_expected_pay_on');
++  });
++
++  it('returns overlapping_active_subscription from the enrollment RPC', async () => {
++    const supabase = createSupabase({
++      rpcResult: { data: null, error: { message: 'overlapping_active_subscription' } },
++    });
++    const res = await auth(
++      request(createApp(supabase))
++        .post('/api/admin/billing/subscriptions')
++        .send({
++          ...validBody,
++          account_id: ACCOUNT_ID,
++          create_initial_charge: false,
++          arm_automatic_billing: false,
++          expected_pay_on: '2026-10-20',
++        }),
++    );
++    expect(res.status).toBe(400);
++    expect(res.body).toEqual({ ok: false, error: 'overlapping_active_subscription' });
++  });
+ });
+ 
+ describe('POST /api/admin/billing/per-class/upgrade-to-monthly', () => {
+diff --git a/supabase/migrations/20261016120000_finance_roster_expected_pay_on.sql b/supabase/migrations/20261016120000_finance_roster_expected_pay_on.sql
+new file mode 100644
+index 0000000..b3e9cf9
+--- /dev/null
++++ b/supabase/migrations/20261016120000_finance_roster_expected_pay_on.sql
+@@ -0,0 +1,834 @@
++-- Finance roster: expected_pay_on is a reminder date only.
++-- Null means no reminder. This migration does not backfill production rows,
++-- does not set automatic_billing_starts_at, and does not rewrite charges.due_at.
++
++alter table public.subscriptions
++  add column if not exists expected_pay_on date;
++
++comment on column public.subscriptions.expected_pay_on is
++  'Date the operator wants a reminder to issue a charge by hand. Null means no reminder. Not automatic_billing_starts_at. Changing it must not rewrite charges.due_at.';
++
++create index if not exists idx_subscriptions_expected_pay_on
++  on public.subscriptions (expected_pay_on)
++  where status = 'active' and expected_pay_on is not null;
++
++-- Replace create_subscription. Extra arguments are defaulted so the previous
++-- 8-argument call keeps today's paid-monthly automation behavior.
++drop function if exists public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text);
++drop function if exists public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean);
++
++create or replace function public.create_subscription(
++  p_participant_id uuid,
++  p_plan_definition_id uuid,
++  p_starts_at date default current_date,
++  p_ends_at date default null,
++  p_account_id uuid default null,
++  p_create_initial_charge boolean default false,
++  p_notes text default null,
++  p_created_by text default null,
++  p_arm_automatic_billing boolean default null,
++  p_expected_pay_on date default null,
++  p_require_explicit_account boolean default false
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_participant record;
++  v_plan record;
++  v_account_id uuid;
++  v_subscription_id uuid;
++  v_initial_charge_id uuid;
++  v_coverage_start date;
++  v_initial_coverage_start date;
++  v_coverage_end date;
++  v_automatic_billing_starts_at date;
++  v_coverage_ready boolean := false;
++begin
++  if p_participant_id is null then
++    raise exception 'participant id is required';
++  end if;
++  if p_plan_definition_id is null then
++    raise exception 'plan definition id is required';
++  end if;
++  if coalesce(p_require_explicit_account, false) and p_account_id is null then
++    raise exception 'account_id_required';
++  end if;
++
++  v_coverage_start := coalesce(p_starts_at, current_date);
++  if p_ends_at is not null and p_ends_at < v_coverage_start then
++    raise exception 'ends_at must be on or after starts_at';
++  end if;
++
++  select p.id into v_participant
++  from public.participants p
++  where p.id = p_participant_id
++  for update;
++  if v_participant.id is null then
++    raise exception 'Participant not found: %', p_participant_id;
++  end if;
++
++  select
++    pd.id,
++    pd.price_cents,
++    pd.currency,
++    pd.billing_cadence,
++    pd.is_active,
++    pd.name
++  into v_plan
++  from public.plan_definitions pd
++  where pd.id = p_plan_definition_id;
++  if v_plan.id is null then
++    raise exception 'Plan not found: %', p_plan_definition_id;
++  end if;
++  if not v_plan.is_active then
++    raise exception 'Plan is not active: %', p_plan_definition_id;
++  end if;
++
++  if v_plan.billing_cadence = 'monthly' and v_plan.price_cents > 0 then
++    v_initial_coverage_start := greatest(v_coverage_start, current_date);
++    if p_ends_at is null or p_ends_at >= v_initial_coverage_start then
++      v_coverage_end := (
++        date_trunc('month', v_initial_coverage_start::timestamp)
++        + interval '1 month'
++        - interval '1 day'
++      )::date;
++      if p_ends_at is not null and p_ends_at < v_coverage_end then
++        v_coverage_end := p_ends_at;
++      end if;
++      v_coverage_ready := true;
++      -- Omitted or true keeps today's generator anchor. Explicit false leaves it null.
++      if p_arm_automatic_billing is distinct from false then
++        v_automatic_billing_starts_at := v_coverage_end + 1;
++      end if;
++    end if;
++  end if;
++
++  v_account_id := p_account_id;
++  if v_account_id is null then
++    select am.account_id into v_account_id
++    from public.account_members am
++    where am.participant_id = p_participant_id
++    order by am.created_at asc
++    limit 1;
++  end if;
++  if v_account_id is null then
++    raise exception 'No account for participant %; provide account_id or bind account first', p_participant_id;
++  end if;
++  if not exists (
++    select 1 from public.accounts a where a.id = v_account_id and a.status = 'active'
++  ) then
++    raise exception 'Account not found or not active: %', v_account_id;
++  end if;
++  if not exists (
++    select 1
++    from public.account_members am
++    where am.account_id = v_account_id
++      and am.participant_id = p_participant_id
++  ) then
++    raise exception 'Participant % is not a member of account %', p_participant_id, v_account_id;
++  end if;
++
++  if exists (
++    select 1
++    from public.subscriptions s
++    where s.participant_id = p_participant_id
++      and s.status = 'active'
++      and (p_ends_at is null or s.starts_at <= p_ends_at)
++      and (s.ends_at is null or s.ends_at >= v_coverage_start)
++  ) then
++    raise exception 'overlapping_active_subscription';
++  end if;
++
++  insert into public.subscriptions (
++    account_id,
++    participant_id,
++    plan_definition_id,
++    status,
++    starts_at,
++    ends_at,
++    automatic_billing_starts_at,
++    expected_pay_on,
++    notes
++  )
++  values (
++    v_account_id,
++    p_participant_id,
++    p_plan_definition_id,
++    'active',
++    v_coverage_start,
++    p_ends_at,
++    v_automatic_billing_starts_at,
++    p_expected_pay_on,
++    nullif(btrim(coalesce(p_notes, '')), '')
++  )
++  returning id into v_subscription_id;
++
++  if coalesce(p_create_initial_charge, false)
++    and v_plan.billing_cadence = 'monthly'
++    and v_plan.price_cents > 0
++    and v_coverage_ready
++  then
++    insert into public.charges (
++      account_id,
++      subscription_id,
++      amount_cents,
++      currency,
++      coverage_start,
++      coverage_end,
++      due_at,
++      status,
++      charge_kind,
++      notes
++    )
++    values (
++      v_account_id,
++      v_subscription_id,
++      v_plan.price_cents,
++      coalesce(v_plan.currency, 'USD'),
++      v_initial_coverage_start,
++      v_coverage_end,
++      v_initial_coverage_start,
++      'open',
++      'monthly_period',
++      concat_ws(
++        ' | ',
++        format('Initial monthly charge for plan %s', v_plan.name),
++        case
++          when p_created_by is not null and btrim(p_created_by) <> ''
++            then 'created_by=' || btrim(p_created_by)
++          else null
++        end
++      )
++    )
++    on conflict (subscription_id, coverage_start)
++      where subscription_id is not null
++        and status <> 'void'
++        and charge_kind = 'monthly_period'
++      do nothing
++    returning id into v_initial_charge_id;
++  elsif coalesce(p_create_initial_charge, false)
++    and v_plan.billing_cadence <> 'monthly'
++  then
++    raise exception
++      'create_initial_charge only applies to monthly plans (plan % has cadence %)',
++      p_plan_definition_id,
++      v_plan.billing_cadence;
++  end if;
++
++  return jsonb_build_object(
++    'subscription_id', v_subscription_id,
++    'account_id', v_account_id,
++    'participant_id', p_participant_id,
++    'plan_definition_id', p_plan_definition_id,
++    'initial_charge_id', v_initial_charge_id,
++    'automatic_billing_starts_at', v_automatic_billing_starts_at
++  );
++end;
++$$;
++
++comment on function public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean) is
++  'Creates an active subscription. arm_automatic_billing false leaves automatic_billing_starts_at null. Omitted keeps the paid-monthly generator anchor. Rejects an overlapping active subscription for the participant.';
++
++revoke all on function public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean) from public;
++revoke all on function public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean) from anon;
++revoke all on function public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean) from authenticated;
++grant execute on function public.create_subscription(uuid, uuid, date, date, uuid, boolean, text, text, boolean, date, boolean) to service_role;
++
++create or replace function public.set_subscription_expected_pay_on(
++  p_subscription_id uuid,
++  p_expected_pay_on date
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_id uuid;
++begin
++  if p_subscription_id is null or p_expected_pay_on is null then
++    if p_subscription_id is null then
++      raise exception 'subscription_not_found';
++    end if;
++    raise exception 'invalid_expected_pay_on';
++  end if;
++
++  update public.subscriptions
++  set expected_pay_on = p_expected_pay_on
++  where id = p_subscription_id
++  returning id into v_id;
++
++  if v_id is null then
++    raise exception 'subscription_not_found';
++  end if;
++
++  return jsonb_build_object(
++    'subscription_id', v_id,
++    'expected_pay_on', to_char(p_expected_pay_on, 'YYYY-MM-DD')
++  );
++end;
++$$;
++
++comment on function public.set_subscription_expected_pay_on(uuid, date) is
++  'Writes subscriptions.expected_pay_on only. Does not change charges.due_at or automatic_billing_starts_at.';
++
++revoke all on function public.set_subscription_expected_pay_on(uuid, date) from public;
++revoke all on function public.set_subscription_expected_pay_on(uuid, date) from anon;
++revoke all on function public.set_subscription_expected_pay_on(uuid, date) from authenticated;
++grant execute on function public.set_subscription_expected_pay_on(uuid, date) to service_role;
++
++create or replace function public.issue_manual_subscription_charge(
++  p_account_id uuid,
++  p_subscription_id uuid,
++  p_amount_cents integer,
++  p_due_at date,
++  p_next_expected_pay_on date,
++  p_coverage_start date default null,
++  p_coverage_end date default null
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_account_id uuid;
++  v_charge_id uuid;
++  v_coverage_start date;
++  v_coverage_end date;
++begin
++  if p_subscription_id is null then
++    raise exception 'subscription_not_found';
++  end if;
++  if p_amount_cents is null or p_amount_cents <= 0 then
++    raise exception 'invalid_amount_cents';
++  end if;
++  if p_due_at is null then
++    raise exception 'invalid_due_at';
++  end if;
++  if p_next_expected_pay_on is null then
++    raise exception 'invalid_expected_pay_on';
++  end if;
++
++  select s.account_id into v_account_id
++  from public.subscriptions s
++  where s.id = p_subscription_id
++  for update;
++  if v_account_id is null then
++    raise exception 'subscription_not_found';
++  end if;
++  if p_account_id is null or v_account_id is distinct from p_account_id then
++    raise exception 'charge_account_mismatch';
++  end if;
++
++  v_coverage_start := coalesce(p_coverage_start, p_due_at);
++  v_coverage_end := coalesce(p_coverage_end, (p_next_expected_pay_on - 1));
++  if v_coverage_end < v_coverage_start then
++    raise exception 'coverage_end_before_start';
++  end if;
++
++  insert into public.charges (
++    account_id,
++    subscription_id,
++    amount_cents,
++    currency,
++    coverage_start,
++    coverage_end,
++    due_at,
++    status,
++    charge_kind
++  )
++  values (
++    p_account_id,
++    p_subscription_id,
++    p_amount_cents,
++    'USD',
++    v_coverage_start,
++    v_coverage_end,
++    p_due_at,
++    'open',
++    'manual'
++  )
++  returning id into v_charge_id;
++
++  if v_charge_id is null then
++    raise exception 'charge_insert_failed';
++  end if;
++
++  update public.subscriptions
++  set expected_pay_on = p_next_expected_pay_on
++  where id = p_subscription_id;
++
++  return jsonb_build_object(
++    'charge_id', v_charge_id,
++    'account_id', p_account_id,
++    'subscription_id', p_subscription_id,
++    'amount_cents', p_amount_cents,
++    'due_at', to_char(p_due_at, 'YYYY-MM-DD'),
++    'expected_pay_on', to_char(p_next_expected_pay_on, 'YYYY-MM-DD')
++  );
++end;
++$$;
++
++comment on function public.issue_manual_subscription_charge(uuid, uuid, integer, date, date, date, date) is
++  'Inserts one manual charge for the confirmed amount and, in the same transaction, stores next_expected_pay_on. Does not set automatic_billing_starts_at.';
++
++revoke all on function public.issue_manual_subscription_charge(uuid, uuid, integer, date, date, date, date) from public;
++revoke all on function public.issue_manual_subscription_charge(uuid, uuid, integer, date, date, date, date) from anon;
++revoke all on function public.issue_manual_subscription_charge(uuid, uuid, integer, date, date, date, date) from authenticated;
++grant execute on function public.issue_manual_subscription_charge(uuid, uuid, integer, date, date, date, date) to service_role;
++
++create or replace function public.account_is_financially_empty(p_account_id uuid)
++returns boolean
++language sql
++stable
++security definer
++set search_path = public
++as $$
++  select
++    not exists (select 1 from public.subscriptions s where s.account_id = p_account_id)
++    and not exists (select 1 from public.charges c where c.account_id = p_account_id)
++    and not exists (select 1 from public.payments p where p.account_id = p_account_id)
++    and not exists (select 1 from public.receipts r where r.account_id = p_account_id)
++    and not exists (select 1 from public.personal_finance_entries e where e.account_id = p_account_id);
++$$;
++
++comment on function public.account_is_financially_empty(uuid) is
++  'True when the account has zero subscriptions, charges, payments, receipts, and personal_finance_entries.';
++
++revoke all on function public.account_is_financially_empty(uuid) from public;
++revoke all on function public.account_is_financially_empty(uuid) from anon;
++revoke all on function public.account_is_financially_empty(uuid) from authenticated;
++grant execute on function public.account_is_financially_empty(uuid) to service_role;
++
++create or replace function public.move_household_member(
++  p_participant_id uuid,
++  p_destination_account_id uuid,
++  p_role text,
++  p_deactivate_source_account_id uuid default null
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_dest_status text;
++  v_dest_name text;
++  v_membership text;
++  v_role text;
++  v_inserted uuid;
++  v_deactivated uuid;
++  v_note text;
++begin
++  if p_participant_id is null then
++    raise exception 'participant_id_required';
++  end if;
++  if p_destination_account_id is null then
++    raise exception 'destination_account_id_required';
++  end if;
++  if p_role is null or p_role not in ('member', 'payer', 'guardian') then
++    raise exception 'invalid_role';
++  end if;
++  if not exists (select 1 from public.participants p where p.id = p_participant_id) then
++    raise exception 'participant_id_required';
++  end if;
++
++  select a.status, a.primary_contact_name
++  into v_dest_status, v_dest_name
++  from public.accounts a
++  where a.id = p_destination_account_id
++  for update;
++  if v_dest_status is null or v_dest_status <> 'active' then
++    raise exception 'destination_account_not_active';
++  end if;
++
++  if p_deactivate_source_account_id is not null then
++    if p_deactivate_source_account_id = p_destination_account_id then
++      raise exception 'source_account_required_member';
++    end if;
++    perform 1 from public.accounts a where a.id = p_deactivate_source_account_id for update;
++    if not exists (
++      select 1
++      from public.account_members am
++      where am.account_id = p_deactivate_source_account_id
++        and am.participant_id = p_participant_id
++    ) then
++      raise exception 'source_account_required_member';
++    end if;
++  end if;
++
++  insert into public.account_members (account_id, participant_id, role)
++  values (p_destination_account_id, p_participant_id, p_role)
++  on conflict (account_id, participant_id) do nothing
++  returning id into v_inserted;
++
++  if v_inserted is null then
++    v_membership := 'already_present';
++    select am.role into v_role
++    from public.account_members am
++    where am.account_id = p_destination_account_id
++      and am.participant_id = p_participant_id;
++  else
++    v_membership := 'created';
++    v_role := p_role;
++  end if;
++
++  if p_deactivate_source_account_id is not null then
++    if not public.account_is_financially_empty(p_deactivate_source_account_id) then
++      raise exception 'source_account_has_financial_history';
++    end if;
++
++    delete from public.account_members
++    where account_id = p_deactivate_source_account_id
++      and participant_id = p_participant_id;
++
++    v_note := format(
++      'Household move: deactivated after adding participant %s to account %s (%s).',
++      p_participant_id,
++      p_destination_account_id,
++      coalesce(nullif(btrim(v_dest_name), ''), 'no contact name')
++    );
++
++    update public.accounts
++    set
++      status = 'inactive',
++      notes = concat_ws(E'\n', nullif(btrim(coalesce(notes, '')), ''), v_note)
++    where id = p_deactivate_source_account_id;
++
++    v_deactivated := p_deactivate_source_account_id;
++  end if;
++
++  return jsonb_build_object(
++    'participant_id', p_participant_id,
++    'destination_account_id', p_destination_account_id,
++    'role', v_role,
++    'membership', v_membership,
++    'deactivated_account_id', v_deactivated
++  );
++end;
++$$;
++
++comment on function public.move_household_member(uuid, uuid, text, uuid) is
++  'Adds account_members on the active destination. Deactivates the source only when it has no financial rows. Does not move charges, payments, or subscriptions.';
++
++revoke all on function public.move_household_member(uuid, uuid, text, uuid) from public;
++revoke all on function public.move_household_member(uuid, uuid, text, uuid) from anon;
++revoke all on function public.move_household_member(uuid, uuid, text, uuid) from authenticated;
++grant execute on function public.move_household_member(uuid, uuid, text, uuid) to service_role;
++
++create or replace function public.create_catalog_plan(
++  p_name text,
++  p_description text,
++  p_plan_category text,
++  p_billing_cadence text,
++  p_price_cents integer,
++  p_copy_access_from_plan_id uuid
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_name text;
++  v_plan_id uuid;
++  v_count integer;
++begin
++  v_name := nullif(btrim(coalesce(p_name, '')), '');
++  if v_name is null then
++    raise exception 'name_required';
++  end if;
++  if p_plan_category is null or p_plan_category not in ('group', 'private', 'hybrid') then
++    raise exception 'invalid_plan_category';
++  end if;
++  if p_billing_cadence is null or p_billing_cadence not in ('per_session', 'monthly', 'contract', 'custom') then
++    raise exception 'invalid_billing_cadence';
++  end if;
++  if p_price_cents is null or p_price_cents < 0 then
++    raise exception 'invalid_price_cents';
++  end if;
++  if p_copy_access_from_plan_id is null then
++    raise exception 'copy_access_from_plan_id_required';
++  end if;
++  if not exists (
++    select 1 from public.plan_definitions pd where pd.id = p_copy_access_from_plan_id
++  ) then
++    raise exception 'source_plan_not_found';
++  end if;
++
++  perform pg_advisory_xact_lock(hashtextextended('finance-roster-plan:' || lower(v_name), 0));
++
++  if exists (
++    select 1
++    from public.plan_definitions pd
++    where pd.is_active
++      and lower(btrim(pd.name)) = lower(v_name)
++  ) then
++    raise exception 'plan_name_taken';
++  end if;
++
++  insert into public.plan_definitions (
++    name,
++    description,
++    plan_category,
++    billing_cadence,
++    price_cents,
++    currency,
++    is_active
++  )
++  values (
++    v_name,
++    nullif(btrim(coalesce(p_description, '')), ''),
++    p_plan_category,
++    p_billing_cadence,
++    p_price_cents,
++    'USD',
++    true
++  )
++  returning id into v_plan_id;
++
++  insert into public.plan_entitlements (
++    plan_definition_id,
++    scope,
++    unit,
++    limit_type,
++    quantity,
++    reset_rule,
++    week_starts_on,
++    applies_to
++  )
++  select
++    v_plan_id,
++    pe.scope,
++    pe.unit,
++    pe.limit_type,
++    pe.quantity,
++    pe.reset_rule,
++    pe.week_starts_on,
++    pe.applies_to
++  from public.plan_entitlements pe
++  where pe.plan_definition_id = p_copy_access_from_plan_id;
++
++  get diagnostics v_count = row_count;
++
++  return jsonb_build_object(
++    'plan', jsonb_build_object(
++      'plan_definition_id', v_plan_id,
++      'name', v_name,
++      'plan_category', p_plan_category,
++      'billing_cadence', p_billing_cadence,
++      'price_cents', p_price_cents,
++      'currency', 'USD',
++      'is_active', true,
++      'access_copied_from_plan_id', p_copy_access_from_plan_id,
++      'entitlement_count', v_count
++    )
++  );
++end;
++$$;
++
++comment on function public.create_catalog_plan(text, text, text, text, integer, uuid) is
++  'Inserts one active USD plan and copies plan_entitlements from the source plan. Does not enroll a participant or insert a charge.';
++
++revoke all on function public.create_catalog_plan(text, text, text, text, integer, uuid) from public;
++revoke all on function public.create_catalog_plan(text, text, text, text, integer, uuid) from anon;
++revoke all on function public.create_catalog_plan(text, text, text, text, integer, uuid) from authenticated;
++grant execute on function public.create_catalog_plan(text, text, text, text, integer, uuid) to service_role;
++
++create or replace function public.list_issue_charge_reminders(p_as_of date default current_date)
++returns table (
++  participant_id uuid,
++  account_id uuid,
++  subscription_id uuid,
++  full_name text,
++  plan_name text,
++  price_cents integer,
++  expected_pay_on date
++)
++language sql
++stable
++security definer
++set search_path = public
++as $$
++  select
++    s.participant_id,
++    s.account_id,
++    s.id,
++    p.full_name,
++    pd.name,
++    pd.price_cents,
++    s.expected_pay_on
++  from public.subscriptions s
++  join public.participants p on p.id = s.participant_id
++  join public.plan_definitions pd on pd.id = s.plan_definition_id
++  where s.status = 'active'
++    and s.expected_pay_on is not null
++    and s.expected_pay_on <= (p_as_of + 7)
++    and not exists (
++      select 1
++      from public.charges c
++      where c.subscription_id = s.id
++        and c.status = 'open'
++        and c.due_at = s.expected_pay_on
++    )
++  order by s.expected_pay_on, p.full_name, s.id;
++$$;
++
++comment on function public.list_issue_charge_reminders(date) is
++  'Active subscriptions whose expected_pay_on is on or before today+7 and that have no open charge due that day.';
++
++revoke all on function public.list_issue_charge_reminders(date) from public;
++revoke all on function public.list_issue_charge_reminders(date) from anon;
++revoke all on function public.list_issue_charge_reminders(date) from authenticated;
++grant execute on function public.list_issue_charge_reminders(date) to service_role;
++
++create or replace function public.list_account_roster(
++  p_limit integer,
++  p_offset integer,
++  p_status text,
++  p_query text
++)
++returns jsonb
++language plpgsql
++stable
++security definer
++set search_path = public
++as $$
++declare
++  v_rows jsonb;
++  v_like text;
++begin
++  if p_status is null or p_status not in ('active', 'inactive', 'all') then
++    raise exception 'invalid_status';
++  end if;
++  if p_limit is null or p_limit < 1 or p_limit > 200 then
++    raise exception 'invalid_limit';
++  end if;
++  if p_offset is null or p_offset < 0 then
++    raise exception 'invalid_offset';
++  end if;
++
++  if p_query is null or btrim(p_query) = '' then
++    v_like := null;
++  else
++    v_like := '%' || replace(replace(replace(btrim(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%';
++  end if;
++
++  select coalesce(
++    jsonb_agg(page.account_json order by page.primary_contact_name nulls last, page.account_id),
++    '[]'::jsonb
++  )
++  into v_rows
++  from (
++    select
++      a.id as account_id,
++      a.primary_contact_name,
++      jsonb_build_object(
++        'account_id', a.id,
++        'status', a.status,
++        'primary_contact_name', a.primary_contact_name,
++        'members', coalesce((
++          select jsonb_agg(members.member_json order by members.member_name, members.participant_id)
++          from (
++            select
++              p.full_name as member_name,
++              am.participant_id,
++              jsonb_build_object(
++                'participant_id', am.participant_id,
++                'full_name', p.full_name,
++                'role', am.role,
++                'subscription', (
++                  select jsonb_build_object(
++                    'subscription_id', s.id,
++                    'status', s.status,
++                    'plan_definition_id', s.plan_definition_id,
++                    'plan_name', pd.name,
++                    'billing_cadence', pd.billing_cadence,
++                    'price_cents', pd.price_cents,
++                    'starts_at', to_char(s.starts_at, 'YYYY-MM-DD'),
++                    'ends_at', case when s.ends_at is null then null else to_char(s.ends_at, 'YYYY-MM-DD') end,
++                    'expected_pay_on', case when s.expected_pay_on is null then null else to_char(s.expected_pay_on, 'YYYY-MM-DD') end,
++                    'automatic_billing_starts_at', case when s.automatic_billing_starts_at is null then null else to_char(s.automatic_billing_starts_at, 'YYYY-MM-DD') end,
++                    'open_charge', (
++                      select jsonb_build_object(
++                        'charge_id', c.id,
++                        'amount_cents', c.amount_cents,
++                        'due_at', to_char(c.due_at, 'YYYY-MM-DD'),
++                        'status', c.status
++                      )
++                      from public.charges c
++                      where c.subscription_id = s.id
++                        and c.status = 'open'
++                      order by
++                        case
++                          when s.expected_pay_on is not null and c.due_at = s.expected_pay_on then 0
++                          else 1
++                        end,
++                        c.due_at,
++                        c.created_at
++                      limit 1
++                    )
++                  )
++                  from public.subscriptions s
++                  join public.plan_definitions pd on pd.id = s.plan_definition_id
++                  where s.account_id = a.id
++                    and s.participant_id = am.participant_id
++                    and s.status = 'active'
++                  order by s.starts_at desc, s.created_at desc
++                  limit 1
++                ),
++                'other_accounts', coalesce((
++                  select jsonb_agg(
++                    jsonb_build_object(
++                      'account_id', oa.id,
++                      'primary_contact_name', oa.primary_contact_name,
++                      'status', oa.status,
++                      'financially_empty', public.account_is_financially_empty(oa.id)
++                    )
++                    order by oa.primary_contact_name nulls last, oa.id
++                  )
++                  from public.account_members om
++                  join public.accounts oa on oa.id = om.account_id
++                  where om.participant_id = am.participant_id
++                    and om.account_id <> a.id
++                ), '[]'::jsonb)
++              ) as member_json
++            from public.account_members am
++            join public.participants p on p.id = am.participant_id
++            where am.account_id = a.id
++          ) members
++        ), '[]'::jsonb)
++      ) as account_json
++    from public.accounts a
++    where (p_status = 'all' or a.status = p_status)
++      and (
++        v_like is null
++        or a.primary_contact_name ilike v_like escape '\'
++        or exists (
++          select 1
++          from public.account_members amq
++          join public.participants pq on pq.id = amq.participant_id
++          where amq.account_id = a.id
++            and pq.full_name ilike v_like escape '\'
++        )
++      )
++    order by a.primary_contact_name asc nulls last, a.id
++    limit p_limit
++    offset p_offset
++  ) page;
++
++  return jsonb_build_object('rows', coalesce(v_rows, '[]'::jsonb));
++end;
++$$;
++
++comment on function public.list_account_roster(integer, integer, text, text) is
++  'Account page for the finance roster: members, the active subscription, expected_pay_on, open charge, and other accounts with financially_empty.';
++
++revoke all on function public.list_account_roster(integer, integer, text, text) from public;
++revoke all on function public.list_account_roster(integer, integer, text, text) from anon;
++revoke all on function public.list_account_roster(integer, integer, text, text) from authenticated;
++grant execute on function public.list_account_roster(integer, integer, text, text) to service_role;
+diff --git a/supabase/tests/database/finance_roster.test.sql b/supabase/tests/database/finance_roster.test.sql
+new file mode 100644
+index 0000000..476d363
+--- /dev/null
++++ b/supabase/tests/database/finance_roster.test.sql
+@@ -0,0 +1,909 @@
++begin;
++
++create schema if not exists extensions;
++create extension if not exists pgtap with schema extensions;
++set local search_path = public, extensions;
++select plan(55);
++
++insert into public.participants (id, full_name, date_of_birth, email)
++select
++  format('f1000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
++  format('[ROSTER TEST] Person %s', n),
++  date '1990-01-01',
++  format('roster-test-%s@tu-test.invalid', n)
++from generate_series(1, 36) n;
++
++insert into public.accounts (id, status, primary_contact_name)
++select
++  format('f2000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
++  'active',
++  case
++    when n = 1 then '[ROSTER] Ada'
++    else format('[ROSTER TEST] Account %s', n)
++  end
++from generate_series(1, 36) n;
++
++insert into public.account_members (account_id, participant_id, role)
++select
++  format('f2000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
++  format('f1000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
++  'member'
++from generate_series(1, 36) n
++where n not in (19, 21, 23, 25, 27, 28, 31, 33);
++
++insert into public.plan_definitions (
++  id, name, description, plan_category, billing_cadence, price_cents, currency, is_active
++)
++values
++  (
++    'f3000000-0000-4000-8000-000000000001',
++    '[ROSTER TEST] Paid Monthly',
++    'Paid monthly plan for roster proofs.',
++    'group',
++    'monthly',
++    30000,
++    'USD',
++    true
++  ),
++  (
++    'f3000000-0000-4000-8000-000000000002',
++    '[ROSTER TEST] Access Source',
++    'Entitlement source.',
++    'group',
++    'monthly',
++    20000,
++    'USD',
++    true
++  );
++
++insert into public.plan_entitlements (
++  plan_definition_id, scope, unit, limit_type, quantity, reset_rule, week_starts_on, applies_to
++)
++values
++  ('f3000000-0000-4000-8000-000000000002', 'group', 'session', 'unlimited', null, 'none', 'monday', null),
++  ('f3000000-0000-4000-8000-000000000002', 'group', 'session', 'limited', 1, 'calendar_week', 'monday', 'weekday');
++
++create temp table roster_calls (
++  label text primary key,
++  result jsonb not null
++);
++
++insert into roster_calls (label, result)
++values
++  (
++    'disarmed',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000001',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000001',
++      false,
++      'roster enroll',
++      'pgtap',
++      false,
++      date '2026-10-20',
++      true
++    )
++  ),
++  (
++    'omit_arm',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000002',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000002',
++      false,
++      'omit arm',
++      'pgtap'
++    )
++  ),
++  (
++    'armed_charge',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000003',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000003',
++      true,
++      'initial charge',
++      'pgtap'
++    )
++  );
++
++select ok(
++  (select result->>'subscription_id' is not null from roster_calls where label = 'disarmed'),
++  'enroll with both flags false writes a subscription'
++);
++select is(
++  (
++    select count(*)
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  0::bigint,
++  'enroll with both flags false writes no charge'
++);
++select ok(
++  (
++    select s.automatic_billing_starts_at is null
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  'enroll with both flags false leaves automatic_billing_starts_at null'
++);
++select is(
++  (
++    select s.expected_pay_on
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  date '2026-10-20',
++  'enroll stores expected_pay_on'
++);
++select is(
++  (
++    select s.automatic_billing_starts_at
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'omit_arm'
++  ),
++  (date_trunc('month', current_date::timestamp) + interval '1 month')::date,
++  'omitting arm_automatic_billing still sets the automation date'
++);
++select is(
++  (
++    select count(*)
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'omit_arm'
++  ),
++  0::bigint,
++  'omitting the flag with create_initial_charge false still writes no charge'
++);
++select is(
++  (
++    select count(*)
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'armed_charge'
++  ),
++  1::bigint,
++  'omitting the flag with the initial charge still inserts the catalog charge'
++);
++select is(
++  (
++    select s.automatic_billing_starts_at
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'armed_charge'
++  ),
++  (date_trunc('month', current_date::timestamp) + interval '1 month')::date,
++  'the initial-charge path still persists the automation date when the flag is omitted'
++);
++
++select is(
++  (
++    public.set_subscription_expected_pay_on(
++      (select (result->>'subscription_id')::uuid from roster_calls where label = 'armed_charge'),
++      date '2026-12-05'
++    )->>'expected_pay_on'
++  ),
++  '2026-12-05',
++  'patch writes the new expected pay date'
++);
++select is(
++  (
++    select c.due_at
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'armed_charge'
++  ),
++  current_date,
++  'patching expected_pay_on leaves charges.due_at unchanged'
++);
++select is(
++  (
++    select s.automatic_billing_starts_at
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'armed_charge'
++  ),
++  (date_trunc('month', current_date::timestamp) + interval '1 month')::date,
++  'patching expected_pay_on leaves automatic_billing_starts_at unchanged'
++);
++
++select is(
++  (
++    public.issue_manual_subscription_charge(
++      'f2000000-0000-4000-8000-000000000001',
++      (select (result->>'subscription_id')::uuid from roster_calls where label = 'disarmed'),
++      24975,
++      date '2026-10-20',
++      date '2026-11-20',
++      null,
++      null
++    )->>'amount_cents'
++  )::integer,
++  24975,
++  'issue charge stores the confirmed amount'
++);
++select is(
++  (
++    select count(*)
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  1::bigint,
++  'issue charge inserts one charge'
++);
++select is(
++  (
++    select c.amount_cents
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  24975,
++  'issue charge does not substitute the catalog price'
++);
++select is(
++  (
++    select s.expected_pay_on
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  date '2026-11-20',
++  'issue charge advances expected_pay_on when the insert succeeds'
++);
++select ok(
++  (
++    select s.automatic_billing_starts_at is null
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  'issue charge leaves automatic_billing_starts_at null'
++);
++select is(
++  (
++    select c.coverage_start
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  date '2026-10-20',
++  'coverage_start defaults to due_at'
++);
++select is(
++  (
++    select c.coverage_end
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'disarmed'
++  ),
++  date '2026-11-19',
++  'coverage_end defaults to the day before next_expected_pay_on'
++);
++
++insert into roster_calls (label, result)
++values (
++  'issue_fail',
++  public.create_subscription(
++    'f1000000-0000-4000-8000-000000000007',
++    'f3000000-0000-4000-8000-000000000001',
++    current_date,
++    null,
++    'f2000000-0000-4000-8000-000000000007',
++    false,
++    'issue fail',
++    'pgtap',
++    false,
++    date '2026-10-21',
++    true
++  )
++);
++
++create or replace function public._roster_test_fail_charge()
++returns trigger
++language plpgsql
++as $$
++begin
++  raise exception 'forced_charge_insert_failure';
++end;
++$$;
++
++create trigger _roster_test_fail_charge
++before insert on public.charges
++for each row execute function public._roster_test_fail_charge();
++
++select throws_ok(
++  $$select public.issue_manual_subscription_charge(
++    'f2000000-0000-4000-8000-000000000007',
++    (select (result->>'subscription_id')::uuid from roster_calls where label = 'issue_fail'),
++    15000,
++    date '2026-10-21',
++    date '2026-11-21',
++    null,
++    null
++  )$$,
++  'forced_charge_insert_failure',
++  'issue charge fails when the charge insert fails'
++);
++select is(
++  (
++    select s.expected_pay_on
++    from public.subscriptions s
++    join roster_calls r on s.id = (r.result->>'subscription_id')::uuid
++    where r.label = 'issue_fail'
++  ),
++  date '2026-10-21',
++  'expected_pay_on advances only if the charge insert succeeds'
++);
++select is(
++  (
++    select count(*)
++    from public.charges c
++    join roster_calls r on c.subscription_id = (r.result->>'subscription_id')::uuid
++    where r.label = 'issue_fail'
++  ),
++  0::bigint,
++  'a failed issue charge leaves no charge row'
++);
++
++drop trigger _roster_test_fail_charge on public.charges;
++drop function public._roster_test_fail_charge();
++
++-- Household: each financial table blocks deactivation and rolls the membership back.
++insert into roster_calls (label, result)
++values (
++  'household_sub',
++  public.create_subscription(
++    'f1000000-0000-4000-8000-000000000020',
++    'f3000000-0000-4000-8000-000000000001',
++    current_date,
++    null,
++    'f2000000-0000-4000-8000-000000000020',
++    false,
++    'household sub',
++    'pgtap',
++    false,
++    current_date,
++    true
++  )
++);
++
++select throws_ok(
++  $$select public.move_household_member(
++    'f1000000-0000-4000-8000-000000000020',
++    'f2000000-0000-4000-8000-000000000021',
++    'member',
++    'f2000000-0000-4000-8000-000000000020'
++  )$$,
++  'source_account_has_financial_history',
++  'a source subscription blocks deactivation'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where participant_id = 'f1000000-0000-4000-8000-000000000020'
++      and account_id = 'f2000000-0000-4000-8000-000000000021'
++  ),
++  0::bigint,
++  'subscription history rolls back the destination membership'
++);
++select is(
++  (select status from public.accounts where id = 'f2000000-0000-4000-8000-000000000020'),
++  'active',
++  'a source with a subscription stays active'
++);
++
++insert into public.charges (
++  account_id, amount_cents, currency, coverage_start, coverage_end, due_at, status, charge_kind
++)
++values (
++  'f2000000-0000-4000-8000-000000000022',
++  1000,
++  'USD',
++  current_date,
++  current_date,
++  current_date,
++  'open',
++  'manual'
++);
++select throws_ok(
++  $$select public.move_household_member(
++    'f1000000-0000-4000-8000-000000000022',
++    'f2000000-0000-4000-8000-000000000023',
++    'member',
++    'f2000000-0000-4000-8000-000000000022'
++  )$$,
++  'source_account_has_financial_history',
++  'a source charge blocks deactivation'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where participant_id = 'f1000000-0000-4000-8000-000000000022'
++      and account_id = 'f2000000-0000-4000-8000-000000000023'
++  ),
++  0::bigint,
++  'charge history rolls back the destination membership'
++);
++
++insert into public.payments (account_id, amount_cents, method)
++values ('f2000000-0000-4000-8000-000000000024', 1000, 'cash');
++select throws_ok(
++  $$select public.move_household_member(
++    'f1000000-0000-4000-8000-000000000024',
++    'f2000000-0000-4000-8000-000000000025',
++    'member',
++    'f2000000-0000-4000-8000-000000000024'
++  )$$,
++  'source_account_has_financial_history',
++  'a source payment blocks deactivation'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where participant_id = 'f1000000-0000-4000-8000-000000000024'
++      and account_id = 'f2000000-0000-4000-8000-000000000025'
++  ),
++  0::bigint,
++  'payment history rolls back the destination membership'
++);
++
++insert into public.payments (id, account_id, amount_cents, method)
++values (
++  'f4000000-0000-4000-8000-000000000001',
++  'f2000000-0000-4000-8000-000000000028',
++  1000,
++  'cash'
++);
++insert into public.receipts (
++  receipt_kind, payment_id, account_id, amount_cents, issued_by
++)
++values (
++  'money_in',
++  'f4000000-0000-4000-8000-000000000001',
++  'f2000000-0000-4000-8000-000000000026',
++  1000,
++  'pgtap'
++);
++select throws_ok(
++  $$select public.move_household_member(
++    'f1000000-0000-4000-8000-000000000026',
++    'f2000000-0000-4000-8000-000000000027',
++    'member',
++    'f2000000-0000-4000-8000-000000000026'
++  )$$,
++  'source_account_has_financial_history',
++  'a source receipt blocks deactivation'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where participant_id = 'f1000000-0000-4000-8000-000000000026'
++      and account_id = 'f2000000-0000-4000-8000-000000000027'
++  ),
++  0::bigint,
++  'receipt history rolls back the destination membership'
++);
++
++insert into public.personal_finance_entries (
++  entry_kind, member_display_name, amount_cents, issued_by, account_id
++)
++values (
++  'cash_received',
++  '[ROSTER TEST] Person 30',
++  500,
++  'pgtap',
++  'f2000000-0000-4000-8000-000000000030'
++);
++select throws_ok(
++  $$select public.move_household_member(
++    'f1000000-0000-4000-8000-000000000030',
++    'f2000000-0000-4000-8000-000000000031',
++    'member',
++    'f2000000-0000-4000-8000-000000000030'
++  )$$,
++  'source_account_has_financial_history',
++  'a source personal-finance row blocks deactivation'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where participant_id = 'f1000000-0000-4000-8000-000000000030'
++      and account_id = 'f2000000-0000-4000-8000-000000000031'
++  ),
++  0::bigint,
++  'personal-finance history rolls back the destination membership'
++);
++
++select is(
++  (
++    public.move_household_member(
++      'f1000000-0000-4000-8000-000000000032',
++      'f2000000-0000-4000-8000-000000000033',
++      'payer',
++      'f2000000-0000-4000-8000-000000000032'
++    )->>'membership'
++  ),
++  'created',
++  'an empty source can be deactivated in the same save'
++);
++select is(
++  (select status from public.accounts where id = 'f2000000-0000-4000-8000-000000000032'),
++  'inactive',
++  'the empty source account is inactive'
++);
++select is(
++  (
++    select count(*)
++    from public.account_members
++    where account_id = 'f2000000-0000-4000-8000-000000000032'
++      and participant_id = 'f1000000-0000-4000-8000-000000000032'
++  ),
++  0::bigint,
++  'the empty source membership is removed'
++);
++select ok(
++  (
++    select notes like '%f2000000-0000-4000-8000-000000000033%'
++    from public.accounts
++    where id = 'f2000000-0000-4000-8000-000000000032'
++  ),
++  'the deactivation note names the destination account'
++);
++select is(
++  (
++    select count(*)
++    from public.subscriptions
++    where participant_id = 'f1000000-0000-4000-8000-000000000032'
++  ),
++  0::bigint,
++  'household move does not enroll'
++);
++select is(
++  (
++    select count(*)
++    from public.charges
++    where account_id in (
++      'f2000000-0000-4000-8000-000000000032',
++      'f2000000-0000-4000-8000-000000000033'
++    )
++  ),
++  0::bigint,
++  'household move does not create a charge'
++);
++
++update public.account_members
++set role = 'guardian'
++where account_id = 'f2000000-0000-4000-8000-000000000034'
++  and participant_id = 'f1000000-0000-4000-8000-000000000034';
++select is(
++  (
++    public.move_household_member(
++      'f1000000-0000-4000-8000-000000000034',
++      'f2000000-0000-4000-8000-000000000034',
++      'member',
++      null
++    )->>'role'
++  ),
++  'guardian',
++  'an existing destination membership keeps its role'
++);
++
++-- Reminders: expected pay date alone is not a 3-day charge.
++insert into roster_calls (label, result)
++values
++  (
++    'remind_only',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000009',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000009',
++      false,
++      'remind only',
++      'pgtap',
++      false,
++      current_date + 1,
++      true
++    )
++  ),
++  (
++    'remind_open',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000010',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000010',
++      false,
++      'remind open',
++      'pgtap',
++      false,
++      current_date,
++      true
++    )
++  ),
++  (
++    'remind_later',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000011',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000011',
++      false,
++      'remind later',
++      'pgtap',
++      false,
++      current_date + 8,
++      true
++    )
++  ),
++  (
++    'remind_other_due',
++    public.create_subscription(
++      'f1000000-0000-4000-8000-000000000012',
++      'f3000000-0000-4000-8000-000000000001',
++      current_date,
++      null,
++      'f2000000-0000-4000-8000-000000000012',
++      false,
++      'remind other due',
++      'pgtap',
++      false,
++      current_date,
++      true
++    )
++  );
++
++insert into public.charges (
++  account_id, subscription_id, amount_cents, currency, coverage_start, coverage_end, due_at, status, charge_kind
++)
++values (
++  'f2000000-0000-4000-8000-000000000010',
++  (select (result->>'subscription_id')::uuid from roster_calls where label = 'remind_open'),
++  30000,
++  'USD',
++  current_date,
++  current_date + 29,
++  current_date,
++  'open',
++  'manual'
++);
++insert into public.charges (
++  account_id, subscription_id, amount_cents, currency, coverage_start, coverage_end, due_at, status, charge_kind
++)
++values (
++  'f2000000-0000-4000-8000-000000000012',
++  (select (result->>'subscription_id')::uuid from roster_calls where label = 'remind_other_due'),
++  30000,
++  'USD',
++  current_date + 40,
++  current_date + 69,
++  current_date + 40,
++  'open',
++  'manual'
++);
++
++select is(
++  (
++    select count(*)
++    from public.list_issue_charge_reminders()
++    where participant_id = 'f1000000-0000-4000-8000-000000000009'
++  ),
++  1::bigint,
++  'an expected pay date inside 7 days with no open charge is in issue_charge'
++);
++select is(
++  (
++    select count(*)
++    from public.list_issue_charge_reminders()
++    where participant_id = 'f1000000-0000-4000-8000-000000000010'
++  ),
++  0::bigint,
++  'an open charge due on the expected pay date is not in issue_charge'
++);
++select is(
++  (
++    select count(*)
++    from public.view_member_payment_reminders
++    where participant_id = 'f1000000-0000-4000-8000-000000000009'
++  ),
++  0::bigint,
++  'a person with only an expected pay date stays out of the 3-day charge reminder'
++);
++select is(
++  (
++    select count(*)
++    from public.list_issue_charge_reminders()
++    where participant_id = 'f1000000-0000-4000-8000-000000000011'
++  ),
++  0::bigint,
++  'an expected pay date after today+7 is outside issue_charge'
++);
++select is(
++  (
++    select count(*)
++    from public.list_issue_charge_reminders()
++    where participant_id = 'f1000000-0000-4000-8000-000000000012'
++  ),
++  1::bigint,
++  'an open charge for a different due date does not hide issue_charge'
++);
++
++insert into roster_calls (label, result)
++values (
++  'overlap_first',
++  public.create_subscription(
++    'f1000000-0000-4000-8000-000000000004',
++    'f3000000-0000-4000-8000-000000000001',
++    current_date,
++    null,
++    'f2000000-0000-4000-8000-000000000004',
++    false,
++    'first',
++    'pgtap',
++    false,
++    current_date,
++    true
++  )
++);
++select throws_ok(
++  $$select public.create_subscription(
++    'f1000000-0000-4000-8000-000000000004',
++    'f3000000-0000-4000-8000-000000000001',
++    current_date,
++    null,
++    'f2000000-0000-4000-8000-000000000004',
++    false,
++    'second',
++    'pgtap',
++    false,
++    current_date,
++    true
++  )$$,
++  'overlapping_active_subscription',
++  'a second overlapping active subscription is rejected'
++);
++select is(
++  (
++    select count(*)
++    from public.subscriptions
++    where participant_id = 'f1000000-0000-4000-8000-000000000004'
++      and status = 'active'
++  ),
++  1::bigint,
++  'the rejected overlap does not insert a second active subscription'
++);
++
++select throws_ok(
++  $$select public.create_subscription(
++    'f1000000-0000-4000-8000-000000000005',
++    'f3000000-0000-4000-8000-000000000001',
++    current_date,
++    null,
++    null,
++    false,
++    'no account',
++    'pgtap',
++    false,
++    current_date,
++    true
++  )$$,
++  'account_id_required',
++  'the roster path does not fall through to the first membership'
++);
++select is(
++  (
++    select count(*)
++    from public.subscriptions
++    where participant_id = 'f1000000-0000-4000-8000-000000000005'
++  ),
++  0::bigint,
++  'a missing account_id on the roster path writes no subscription'
++);
++
++create temp table roster_counts as
++select
++  (select count(*) from public.subscriptions) as subscriptions,
++  (select count(*) from public.charges) as charges;
++
++insert into roster_calls (label, result)
++values (
++  'new_plan',
++  public.create_catalog_plan(
++    '[ROSTER TEST] Copied Plan',
++    null,
++    'group',
++    'contract',
++    13500,
++    'f3000000-0000-4000-8000-000000000002'
++  )
++);
++select is(
++  ((select result->'plan'->>'entitlement_count' from roster_calls where label = 'new_plan'))::integer,
++  2,
++  'plan create copies entitlements'
++);
++select is(
++  (select count(*) from public.subscriptions),
++  (select subscriptions from roster_counts),
++  'plan create enrolls nobody'
++);
++select is(
++  (select count(*) from public.charges),
++  (select charges from roster_counts),
++  'plan create inserts no charge'
++);
++select throws_ok(
++  $$select public.create_catalog_plan(
++    '[ROSTER TEST] Copied Plan',
++    null,
++    'group',
++    'monthly',
++    100,
++    'f3000000-0000-4000-8000-000000000002'
++  )$$,
++  'plan_name_taken',
++  'a duplicate active plan name is rejected'
++);
++select is(
++  (
++    select count(*)
++    from public.plan_definitions
++    where name = '[ROSTER TEST] Copied Plan'
++  ),
++  1::bigint,
++  'the rejected duplicate does not insert a second plan'
++);
++
++insert into public.account_members (account_id, participant_id, role)
++values (
++  'f2000000-0000-4000-8000-000000000019',
++  'f1000000-0000-4000-8000-000000000001',
++  'member'
++);
++select is(
++  (
++    select member->'subscription'->>'expected_pay_on'
++    from jsonb_array_elements(public.list_account_roster(50, 0, 'active', '[ROSTER] Ada')->'rows') account
++    cross join lateral jsonb_array_elements(account->'members') member
++    where account->>'account_id' = 'f2000000-0000-4000-8000-000000000001'
++      and member->>'participant_id' = 'f1000000-0000-4000-8000-000000000001'
++  ),
++  '2026-11-20',
++  'the roster payload includes the advanced expected pay date'
++);
++select is(
++  (
++    select (other->>'financially_empty')::boolean
++    from jsonb_array_elements(public.list_account_roster(50, 0, 'active', '[ROSTER] Ada')->'rows') account
++    cross join lateral jsonb_array_elements(account->'members') member
++    cross join lateral jsonb_array_elements(member->'other_accounts') other
++    where account->>'account_id' = 'f2000000-0000-4000-8000-000000000001'
++      and other->>'account_id' = 'f2000000-0000-4000-8000-000000000019'
++  ),
++  true,
++  'an account with no financial rows is financially_empty'
++);
++
++select * from finish();
++rollback;
+-- 
+2.43.0
+
