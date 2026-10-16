@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PAGE_SIZE,
+  SESSION_EXPIRED_EVENT,
   UNAVAILABLE_MESSAGE,
+  WAIVER_LIST_PATH,
   ViewerRequestError,
   buildWaiverDocumentsQuery,
   mapViewerError,
@@ -13,6 +15,7 @@ import { completenessFlags, filterLoadedPage } from '../src/lib/waiver-record.ts
 
 test('list query sends sort, order, limit, offset, and dates only when set', () => {
   const recent = queryForSort('recent', 0);
+  assert.equal(recent.startsWith(`${WAIVER_LIST_PATH}?`), true);
   const recentParams = new URL(`http://local${recent}`).searchParams;
   assert.equal(recentParams.get('sort'), 'signed_at_utc');
   assert.equal(recentParams.get('order'), 'desc');
@@ -92,33 +95,31 @@ test('page search matches name, email, cell, and home phone only', () => {
   assert.equal(filterLoadedPage(rows, 'hidden').length, 0);
 });
 
-test('error keys map to operator copy', () => {
-  assert.equal(
-    mapViewerError(401, 'unauthorized'),
-    'Sign in through Cloudflare Access, then reload.',
-  );
-  assert.equal(
-    mapViewerError(403, 'forbidden'),
-    'This account is not on the waiver viewer allowlist.',
-  );
-  assert.equal(
-    mapViewerError(503, 'viewer_access_not_configured'),
-    'Viewer access is not configured on the API.',
-  );
-  assert.equal(
-    mapViewerError(503, 'viewer_allowlist_not_configured'),
-    'Viewer access is not configured on the API.',
-  );
-  assert.equal(mapViewerError(503, 'other'), UNAVAILABLE_MESSAGE);
-  assert.equal(mapViewerError(500, 'boom'), UNAVAILABLE_MESSAGE);
+test('error statuses map to operator copy', () => {
+  assert.equal(mapViewerError(401), 'Session expired. Unlock to continue.');
+  assert.equal(mapViewerError(403), 'Your staff role cannot access waivers.');
+  assert.equal(mapViewerError(503), UNAVAILABLE_MESSAGE);
+  assert.equal(mapViewerError(500), UNAVAILABLE_MESSAGE);
   assert.equal(mapViewerError(0), UNAVAILABLE_MESSAGE);
 });
 
-test('viewerFetch requires same-origin credentials, HTTP success, and ok:true', async () => {
+test('viewerFetch sends the staff key, requires ok:true, and locks on 401', async () => {
   const original = globalThis.fetch;
+  const previousWindow = globalThis.window;
+  const events = [];
+  globalThis.window = {
+    dispatchEvent(event) {
+      events.push(event.type);
+      return true;
+    },
+  };
+  const listPath = `${WAIVER_LIST_PATH}?limit=50`;
   try {
-    globalThis.fetch = async (_url, init) => {
-      assert.equal(init.credentials, 'same-origin');
+    globalThis.fetch = async (url, init) => {
+      assert.equal(String(url), `http://localhost:3001${listPath}`);
+      assert.equal(init.headers['x-admin-key'], 'staff-key');
+      assert.equal(init.method, 'GET');
+      assert.equal(init.credentials, undefined);
       assert.ok(init.signal);
       return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
         status: 401,
@@ -126,14 +127,15 @@ test('viewerFetch requires same-origin credentials, HTTP success, and ok:true', 
       });
     };
     await assert.rejects(
-      () => viewerFetch('/api/viewer/waiver-documents?limit=50'),
+      () => viewerFetch('http://localhost:3001/', ' staff-key ', listPath),
       (error) => {
         assert.ok(error instanceof ViewerRequestError);
-        assert.equal(error.message, 'Sign in through Cloudflare Access, then reload.');
+        assert.equal(error.message, 'Session expired. Unlock to continue.');
         assert.equal(error.status, 401);
         return true;
       },
     );
+    assert.deepEqual(events, [SESSION_EXPIRED_EVENT]);
 
     globalThis.fetch = async () =>
       new Response(JSON.stringify({ rows: [] }), {
@@ -141,7 +143,7 @@ test('viewerFetch requires same-origin credentials, HTTP success, and ok:true', 
         headers: { 'content-type': 'application/json' },
       });
     await assert.rejects(
-      () => viewerFetch('/api/viewer/waiver-documents'),
+      () => viewerFetch('http://localhost:3001', 'staff-key', listPath),
       (error) => error instanceof ViewerRequestError && error.message === UNAVAILABLE_MESSAGE,
     );
 
@@ -149,7 +151,7 @@ test('viewerFetch requires same-origin credentials, HTTP success, and ok:true', 
       throw new TypeError('network down');
     };
     await assert.rejects(
-      () => viewerFetch('/api/viewer/waiver-documents'),
+      () => viewerFetch('http://localhost:3001', 'staff-key', listPath),
       (error) => error instanceof ViewerRequestError && error.message === UNAVAILABLE_MESSAGE,
     );
 
@@ -160,10 +162,11 @@ test('viewerFetch requires same-origin credentials, HTTP success, and ok:true', 
       throw new DOMException('The operation was aborted', 'AbortError');
     };
     await assert.rejects(
-      () => viewerFetch('/api/viewer/waiver-documents', { signal: controller.signal }),
+      () => viewerFetch('http://localhost:3001', 'staff-key', listPath, { signal: controller.signal }),
       (error) => error instanceof DOMException && error.name === 'AbortError',
     );
   } finally {
     globalThis.fetch = original;
+    globalThis.window = previousWindow;
   }
 });

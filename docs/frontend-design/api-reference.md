@@ -7,7 +7,9 @@ the exact shapes the UIs depend on.
 
 - **Base URL:** `http://localhost:3001` locally; the deployed host in production.
 - **Admin auth:** header `x-admin-key: <ADMIN_API_KEY>` on every `/api/admin/*` call.
-- **Viewer auth:** Cloudflare Access (no admin key) on `/api/viewer/*`.
+- **Viewer auth:** `GET /api/viewer/*` on the API is still Cloudflare Access. The waiver
+  viewer app does not call it. That app sends `x-admin-key` to `/api/admin/auth/me` and
+  `GET /api/admin/reporting/views/waiver-documents`.
 - **Envelope:** `200 { ok:true, ... }` on success; non-2xx `{ ok:false, error }` on failure.
 - **Money:** integer cents.
 
@@ -185,13 +187,13 @@ Same query options as `reporting/views/waiver-documents`; reads `view_waiver_doc
 `503` if viewer access not configured (`viewer_access_not_configured`,
 `viewer_allowlist_not_configured`); `401` if JWT invalid; `403` if email not allowlisted.
 
-The waiver viewer calls this with `credentials: "same-origin"` and only these params:
+The waiver viewer does not call this route. It loads the same view through
+`GET /api/admin/reporting/views/waiver-documents` with `x-admin-key` and only these params:
 `sort` (`signed_at_utc` or `participant_full_name`), `order` (`asc|desc`), `limit=50`,
 `offset`, plus `start` / `end` (`YYYY-MM-DD`) when a date is set. It does not send `q`.
 Search filters the loaded page in the browser. `document_pdf_url` and `signature_image_url`
 on each row are storage paths, not signed URLs. Opening a PDF remains
-`GET /api/admin/waivers/:id` (dashboard, admin key) until the signup repo adds an
-Access-scoped detail route.
+`GET /api/admin/waivers/:id` on dashboard People. This viewer does not call that detail route.
 
 ### Notifications (operator-triggered)
 - `POST /api/admin/notifications/discord/payment-reminders` → `{ ok:true, posted:true, rowCount }`

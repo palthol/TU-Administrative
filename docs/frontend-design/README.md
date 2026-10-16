@@ -47,8 +47,10 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 - **Auth (`/api/admin/*`):** send header `x-admin-key: <ADMIN_API_KEY>`. Missing/wrong key
   → `401 { ok:false, error:"unauthorized" }`. The key is operator-entered in the UI; never
   bake it into a build.
-- **Auth (`/api/viewer/*`):** Cloudflare Access JWT + email allowlist — **not** the admin
-  key. The browser does not send `x-admin-key` here.
+- **Waiver viewer:** same runtime staff key as the other admin apps (`x-admin-key`),
+  checked with `GET /api/admin/auth/me`, then
+  `GET /api/admin/reporting/views/waiver-documents`. `/api/viewer/*` remains a
+  Cloudflare Access route on the API; this app does not call it.
 - **Envelope:** success → HTTP `200` with `{ ok:true, ...fields }`. Failure → non-2xx with
   `{ ok:false, error:"<machine_key>" }`. Clients check `res.ok` then read `data.<field>` /
   `data.error`.
