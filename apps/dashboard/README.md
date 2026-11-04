@@ -26,7 +26,11 @@ verification evidence. No browser database queries or RPCs are used.
 sign-in at `/login` (`POST /api/auth/login`; `fetch` uses `credentials: 'include'`). Signed-in
 state comes only from `GET /api/auth/me`; the apps never read the API's host-only
 `__Host-tu_admin_session` cookie. If already signed in, `/login` redirects immediately. Login
-shows a friendly error on `401`, `429 { error:"rate_limited" }`, and `503`. When the SSO
+shows a friendly error on `401`, `403 { error:"csrf_failed" }`, `429 { error:"rate_limited" }`,
+and `503`. `return_to` is limited to the three production admin hosts (plus optional
+`VITE_RETURN_TO_ORIGINS`). After a successful login, `/me` must succeed before leaving
+`/login`. Direct loads of `/login` in production are served via an SPA rewrite in
+`apps/dashboard/vercel.json`. When the SSO
 endpoints are not deployed yet (`GET /api/auth/me` returns `404`), the dashboard falls back to
 the existing staff/admin key unlock page (`GET /api/admin/auth/me` with `x-admin-key`). Keys
 and loaded records clear on Lock or reload. No key is placed in `VITE_*`, links, or browser

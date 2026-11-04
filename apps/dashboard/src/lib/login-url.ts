@@ -23,10 +23,26 @@ export function getDefaultLoginUrl(): string {
   return resolveLoginUrl(import.meta.env?.VITE_LOGIN_URL, Boolean(import.meta.env?.DEV));
 }
 
+export const FROM_LOGIN_PARAM = 'from_login';
+
 export function buildLoginRedirectUrl(loginUrl: string, returnTo: string): string {
   const target = new URL(loginUrl);
   target.searchParams.set('return_to', returnTo);
   return target.toString();
+}
+
+export function markFromLogin(url: string): string {
+  const target = new URL(url);
+  target.searchParams.set(FROM_LOGIN_PARAM, '1');
+  return target.toString();
+}
+
+export function hasFromLoginFlag(href: string): boolean {
+  try {
+    return new URL(href).searchParams.get(FROM_LOGIN_PARAM) === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function redirectToLogin(returnTo: string): void {

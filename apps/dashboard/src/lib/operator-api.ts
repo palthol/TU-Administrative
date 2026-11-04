@@ -1,5 +1,5 @@
 import { adminFetch } from "./admin-api";
-import { redirectToLogin } from "./login-url";
+import { hasFromLoginFlag, redirectToLogin } from "./login-url";
 import { agendaQuery, localSessions, type Session } from "./operator";
 
 export async function readAdmin<T>(
@@ -17,6 +17,8 @@ export async function readAdmin<T>(
   if (status === 401) {
     if (key.trim()) {
       window.dispatchEvent(new Event("operator-session-expired"));
+    } else if (hasFromLoginFlag(globalThis.location?.href ?? "")) {
+      throw new Error("Signed in, but this app could not load your session. Try signing in again.");
     } else {
       const returnTo = globalThis.location?.href ?? "";
       redirectToLogin(returnTo);

@@ -1,4 +1,4 @@
-import { buildLoginRedirectUrl, getDefaultLoginUrl } from './login-url';
+import { buildLoginRedirectUrl, getDefaultLoginUrl, hasFromLoginFlag } from './login-url';
 
 export type AdminFetchResult<T = unknown> = {
   ok: boolean;
@@ -56,6 +56,8 @@ export async function adminFetch<T = Record<string, unknown>>(
     if (res.status === 401) {
       if (adminKey.trim()) {
         window.dispatchEvent(new Event('finance-session-expired'));
+      } else if (hasFromLoginFlag(globalThis.location?.href ?? '')) {
+        // Stay put after a failed post-login /me so we do not bounce back to /login.
       } else if (typeof globalThis.location?.assign === 'function') {
         const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), globalThis.location.href);
         globalThis.location.assign(redirectUrl);

@@ -44,5 +44,29 @@ describe('adminFetch SSO behavior', () => {
       (globalThis as any).location = originalLocation;
     }
   });
+
+  it('does not redirect to login on 401 when arriving from_login=1', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalLocation = globalThis.location;
+    const assign = vi.fn();
+    try {
+      (globalThis as any).location = {
+        href: 'https://finance.templeunderground.com/?from_login=1',
+        assign,
+      };
+      globalThis.fetch = vi.fn(async () => {
+        return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as any;
+      const result = await adminFetch('http://localhost:3001', '', '/api/admin/auth/me');
+      expect(result.status).toBe(401);
+      expect(assign).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+      (globalThis as any).location = originalLocation;
+    }
+  });
 });
 

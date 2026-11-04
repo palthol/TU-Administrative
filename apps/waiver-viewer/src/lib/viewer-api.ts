@@ -37,6 +37,14 @@ function buildLoginRedirectUrl(loginUrl: string, returnTo: string): string {
   return target.toString();
 }
 
+function hasFromLoginFlag(href: string): boolean {
+  try {
+    return new URL(href).searchParams.get('from_login') === '1';
+  } catch {
+    return false;
+  }
+}
+
 export type SortMode = 'recent' | 'name';
 export type WaiverSortColumn = 'signed_at_utc' | 'participant_full_name';
 export type WaiverSortOrder = 'asc' | 'desc';
@@ -205,7 +213,9 @@ export async function viewerFetch<T extends { ok?: boolean; error?: string }>(
 
   if (result.status === 401) {
     if (adminKey.trim()) notifySessionExpired();
-    else if (typeof globalThis.location?.assign === 'function') {
+    else if (hasFromLoginFlag(globalThis.location?.href ?? '')) {
+      // Stay put after a failed post-login /me so we do not bounce back to /login.
+    } else if (typeof globalThis.location?.assign === 'function') {
       const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), globalThis.location.href);
       globalThis.location.assign(redirectUrl);
     }

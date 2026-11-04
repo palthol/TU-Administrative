@@ -2,8 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDefaultApiBase } from "@/lib/admin-api";
-import { authLogout, authMe } from "@/lib/auth-api";
-import { buildLoginRedirectUrl, getDefaultLoginUrl } from "@/lib/login-url";
+import { authMe, decideSessionBootstrap, signOut } from "@/lib/auth-api";
+import {
+  buildLoginRedirectUrl,
+  getDefaultLoginUrl,
+  hasFromLoginFlag,
+} from "@/lib/login-url";
 import { readAdmin } from "@/lib/operator-api";
 import {
   localDate,
@@ -33,7 +37,11 @@ const fromHash = (): Destination =>
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState("");
-  const [bootstrap, setBootstrap] = useState<"checking" | "legacy">("checking");
+  const [bootstrap, setBootstrap] = useState<"checking" | "legacy" | "error">(
+    "checking",
+  );
+  const [bootstrapError, setBootstrapError] = useState("");
+  const [signOutError, setSignOutError] = useState("");
   const [session, setSession] = useState<
     | { mode: "legacy"; key: string; staff: Staff }
     | { mode: "session"; key: ""; staff: Staff }
@@ -63,7 +71,10 @@ export default function App() {
       try {
         const me = await authMe(apiBase, controller.signal);
         if (controller.signal.aborted) return;
-        if (me.ok) {
+        const decision = decideSessionBootstrap(me.ok ? 200 : me.status, {
+          fromLogin: hasFromLoginFlag(window.location.href),
+        });
+        if (decision.kind === "authenticated") {
           const data = await readAdmin<{ staff: Staff }>(
             apiBase,
             "",
@@ -80,20 +91,30 @@ export default function App() {
           setSession({ mode: "session", key: "", staff: data.staff });
           return;
         }
-        if (me.status === 404) {
+        if (decision.kind === "legacy") {
           setBootstrap("legacy");
           return;
         }
-        if (me.status === 401) {
-          const loginUrl = buildLoginRedirectUrl(
-            getDefaultLoginUrl(),
-            window.location.href,
-          );
-          window.location.assign(loginUrl);
+        if (decision.kind === "loop-blocked") {
+          setBootstrapError(decision.message);
+          setBootstrap("error");
           return;
         }
-        setBootstrap("legacy");
-      } catch {
+        const loginUrl = buildLoginRedirectUrl(
+          getDefaultLoginUrl(),
+          window.location.href,
+        );
+        window.location.assign(loginUrl);
+      } catch (caught) {
+        if (hasFromLoginFlag(window.location.href)) {
+          setBootstrapError(
+            caught instanceof Error
+              ? caught.message
+              : "Signed in, but this app could not load your session. Try signing in again.",
+          );
+          setBootstrap("error");
+          return;
+        }
         setBootstrap("legacy");
       }
     })();
@@ -137,6 +158,21 @@ export default function App() {
           <p className="brand-mark">TEMPLE / UNDERGROUND</p>
           <h1>Operator workspace</h1>
           <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
+  if (!session && bootstrap === "error")
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Operator workspace</h1>
+          <p role="alert" className="error-message">
+            {bootstrapError}
+          </p>
+          <p>
+            <a href={getDefaultLoginUrl()}>Back to sign in</a>
+          </p>
         </div>
       </main>
     );
@@ -199,11 +235,13 @@ export default function App() {
         setDraftKey("");
         setError("");
       }}
+      signOutError={signOutError}
       onSignOut={async () => {
-        try {
-          await authLogout(apiBase);
-        } catch {
-          // ignore network errors; still attempt to leave the app
+        setSignOutError("");
+        const result = await signOut(apiBase);
+        if (!result.ok) {
+          setSignOutError(result.message);
+          return;
         }
         window.location.assign(getDefaultLoginUrl());
       }}
@@ -215,12 +253,14 @@ function Workspace({
   connection,
   staff,
   authMode,
+  signOutError,
   onLock,
   onSignOut,
 }: {
   connection: Connection;
   staff: Staff;
   authMode: "legacy" | "session";
+  signOutError: string;
   onLock: () => void;
   onSignOut: () => void | Promise<void>;
 }) {
@@ -367,6 +407,11 @@ function Workspace({
               {authMode === "session" ? "Sign out" : "Lock"}
             </Button>
           </div>
+          {signOutError ? (
+            <p role="alert" className="error-message">
+              {signOutError}
+            </p>
+          ) : null}
         </header>
         <main id="workspace-main" className="workspace-main" tabIndex={-1}>
           <div className="page-heading">

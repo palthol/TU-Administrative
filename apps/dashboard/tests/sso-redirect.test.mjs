@@ -5,6 +5,7 @@ import {
   PRODUCTION_LOGIN_URL,
   buildLoginRedirectUrl,
   getDefaultLoginUrl,
+  markFromLogin,
   redirectToLogin,
   resolveLoginUrl,
 } from '../src/lib/login-url.ts';
@@ -59,4 +60,9 @@ test('redirectToLogin assigns login?return_to=<current URL>', () => {
 test('resolveLoginUrl defaults to production admin login outside of dev', () => {
   assert.equal(resolveLoginUrl(undefined, false), PRODUCTION_LOGIN_URL);
   assert.equal(resolveLoginUrl(' https://admin.templeunderground.com/login ', false), PRODUCTION_LOGIN_URL);
+});
+
+test('markFromLogin adds the post-login loop guard flag', () => {
+  const marked = markFromLogin('https://finance.templeunderground.com/#cash');
+  assert.equal(new URL(marked).searchParams.get('from_login'), '1');
 });

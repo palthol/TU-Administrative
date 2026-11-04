@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Toolbar } from './components/Toolbar';
 import { WaiverList } from './components/WaiverList';
 import type { WaiverDocument, WaiverListResponse } from './lib/types';
-import { authLogout, authMe } from './lib/auth-api';
+import { authMe, decideSessionBootstrap, signOut } from './lib/auth-api';
 import {
   AUTH_ME_PATH,
   PAGE_SIZE,
@@ -18,7 +18,7 @@ import {
   type Staff,
 } from './lib/viewer-api';
 import { filterLoadedPage } from './lib/waiver-record';
-import { buildLoginRedirectUrl, getDefaultLoginUrl } from './lib/login-url';
+import { buildLoginRedirectUrl, getDefaultLoginUrl, hasFromLoginFlag } from './lib/login-url';
 
 function useDebounced(value: string, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
@@ -32,7 +32,9 @@ function useDebounced(value: string, delayMs: number) {
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState('');
-  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy'>('checking');
+  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy' | 'error'>('checking');
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [signOutError, setSignOutError] = useState('');
   const [session, setSession] = useState<
     | { mode: 'legacy'; key: string; staff: Staff }
     | { mode: 'session'; key: ''; staff: Staff }
@@ -63,7 +65,10 @@ export default function App() {
       try {
         const me = await authMe(apiBase, controller.signal);
         if (controller.signal.aborted) return;
-        if (me.ok) {
+        const decision = decideSessionBootstrap(me.ok ? 200 : me.status, {
+          fromLogin: hasFromLoginFlag(window.location.href),
+        });
+        if (decision.kind === 'authenticated') {
           const { ok, status, data } = await adminFetch<{ ok?: boolean; staff?: Staff; error?: string }>(
             apiBase,
             '',
@@ -72,6 +77,11 @@ export default function App() {
           );
           if (controller.signal.aborted) return;
           if (!ok || !data.staff) {
+            if (status === 401 && hasFromLoginFlag(window.location.href)) {
+              setBootstrapError('Signed in, but this app could not load your session. Try signing in again.');
+              setBootstrap('error');
+              return;
+            }
             if (status === 401) {
               const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
               window.location.assign(redirectUrl);
@@ -85,17 +95,27 @@ export default function App() {
           setSession({ mode: 'session', key: '', staff: data.staff });
           return;
         }
-        if (me.status === 404) {
+        if (decision.kind === 'legacy') {
           setBootstrap('legacy');
           return;
         }
-        if (me.status === 401) {
-          const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
-          window.location.assign(redirectUrl);
+        if (decision.kind === 'loop-blocked') {
+          setBootstrapError(decision.message);
+          setBootstrap('error');
           return;
         }
-        setBootstrap('legacy');
-      } catch {
+        const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+        window.location.assign(redirectUrl);
+      } catch (caught) {
+        if (hasFromLoginFlag(window.location.href)) {
+          setBootstrapError(
+            caught instanceof Error
+              ? caught.message
+              : 'Signed in, but this app could not load your session. Try signing in again.',
+          );
+          setBootstrap('error');
+          return;
+        }
         setBootstrap('legacy');
       }
     })();
@@ -144,6 +164,23 @@ export default function App() {
           <p className="brand-mark">TEMPLE / UNDERGROUND</p>
           <h1>Waiver review</h1>
           <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!session && bootstrap === 'error') {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Waiver review</h1>
+          <p role="alert" className="error-message">
+            {bootstrapError}
+          </p>
+          <p>
+            <a href={getDefaultLoginUrl()}>Back to sign in</a>
+          </p>
         </div>
       </main>
     );
@@ -207,11 +244,13 @@ export default function App() {
         setDraftKey('');
         setError('');
       }}
+      signOutError={signOutError}
       onSignOut={async () => {
-        try {
-          await authLogout(apiBase);
-        } catch {
-          // ignore network errors
+        setSignOutError('');
+        const result = await signOut(apiBase);
+        if (!result.ok) {
+          setSignOutError(result.message);
+          return;
         }
         window.location.assign(getDefaultLoginUrl());
       }}
@@ -224,6 +263,7 @@ function WaiverWorkspace({
   adminKey,
   staff,
   authMode,
+  signOutError,
   onLock,
   onSignOut,
 }: {
@@ -231,6 +271,7 @@ function WaiverWorkspace({
   adminKey: string;
   staff: Staff;
   authMode: 'legacy' | 'session';
+  signOutError: string;
   onLock: () => void;
   onSignOut: () => void | Promise<void>;
 }) {
@@ -320,6 +361,11 @@ function WaiverWorkspace({
             {authMode === 'session' ? 'Sign out' : 'Lock'}
           </button>
         </div>
+        {signOutError ? (
+          <p role="alert" className="error-message">
+            {signOutError}
+          </p>
+        ) : null}
         <p className="staff-line">
           {staff.display_name} · {roleLabel}
         </p>

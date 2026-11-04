@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_LOGIN_URL?: string;
+  readonly VITE_RETURN_TO_ORIGINS?: string;
   readonly VITE_RECEIPTS_APP_URL?: string;
   readonly VITE_WAIVER_VIEWER_APP_URL?: string;
 }

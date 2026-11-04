@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getDefaultApiBase } from '@/lib/admin-api';
-import { authLogin, authMe, mapLoginFailure } from '@/lib/auth-api';
+import { authMe, completeLogin } from '@/lib/auth-api';
+import { markFromLogin } from '@/lib/login-url';
 import { validateReturnTo } from '@/lib/return-to';
 
-function redirectTargetOrDashboardHome(returnTo: string | null): string {
-  return returnTo ?? '/';
-}
-
 export default function LoginPage() {
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const apiBase = useMemo(() => getDefaultApiBase(), []);
   const [email, setEmail] = useState('');
@@ -21,8 +17,10 @@ export default function LoginPage() {
   const submitted = useRef(false);
 
   const returnToParam = params.get('return_to');
-  const validatedReturnTo = validateReturnTo(returnToParam, { isDev: Boolean(import.meta.env?.DEV) });
-  const target = redirectTargetOrDashboardHome(validatedReturnTo);
+  const validatedReturnTo = validateReturnTo(returnToParam, {
+    isDev: Boolean(import.meta.env?.DEV),
+    extraOrigins: import.meta.env?.VITE_RETURN_TO_ORIGINS,
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -30,17 +28,14 @@ export default function LoginPage() {
       try {
         const me = await authMe(apiBase, controller.signal);
         if (!me.ok) return;
-        if (validatedReturnTo) {
-          window.location.assign(validatedReturnTo);
-          return;
-        }
-        navigate('/', { replace: true });
+        const destination = validatedReturnTo ?? `${window.location.origin}/`;
+        window.location.replace(markFromLogin(destination));
       } catch {
         // ignore network errors; the login form will display errors on submit
       }
     })();
     return () => controller.abort();
-  }, [apiBase, navigate, validatedReturnTo]);
+  }, [apiBase, validatedReturnTo]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -49,16 +44,13 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const result = await authLogin(apiBase, email.trim(), password);
-      if (result.ok) {
-        if (validatedReturnTo) {
-          window.location.assign(validatedReturnTo);
-          return;
-        }
-        navigate('/', { replace: true });
+      const result = await completeLogin(apiBase, email.trim(), password);
+      if (!result.ok) {
+        setError(result.message);
         return;
       }
-      setError(mapLoginFailure(result.status, result.data));
+      const destination = validatedReturnTo ?? `${window.location.origin}/`;
+      window.location.assign(markFromLogin(destination));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to sign in.');
     } finally {
@@ -109,7 +101,7 @@ export default function LoginPage() {
             </p>
           ) : null}
           {validatedReturnTo ? (
-            <p className="muted text-sm">After sign-in: {target}</p>
+            <p className="muted text-sm">After sign-in: {validatedReturnTo}</p>
           ) : returnToParam ? (
             <p className="muted text-sm">After sign-in: dashboard home</p>
           ) : null}
@@ -118,4 +110,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

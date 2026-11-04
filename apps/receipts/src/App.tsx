@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { adminFetch, getDefaultApiBase } from '@/lib/admin-api';
-import { authLogout, authMe } from '@/lib/auth-api';
+import { authMe, decideSessionBootstrap, signOut } from '@/lib/auth-api';
 import {
   destinations,
   fromHash,
@@ -16,7 +16,7 @@ import { Invoice } from '@/components/finance/Invoice';
 import { Recent } from '@/components/finance/Recent';
 import { Formal } from '@/components/finance/Formal';
 import { More } from '@/components/finance/More';
-import { buildLoginRedirectUrl, getDefaultLoginUrl } from '@/lib/login-url';
+import { buildLoginRedirectUrl, getDefaultLoginUrl, hasFromLoginFlag } from '@/lib/login-url';
 
 const SUPPORTED_ROLES = ['owner', 'finance', 'front_desk'];
 
@@ -31,7 +31,9 @@ const navMeta: Record<Destination, { symbol: string; label: string }> = {
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState('');
-  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy'>('checking');
+  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy' | 'error'>('checking');
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [signOutError, setSignOutError] = useState('');
   const [session, setSession] = useState<
     | { mode: 'legacy'; key: string; staff: Staff }
     | { mode: 'session'; key: ''; staff: Staff }
@@ -62,7 +64,10 @@ export default function App() {
       try {
         const me = await authMe(apiBase, controller.signal);
         if (controller.signal.aborted) return;
-        if (me.ok) {
+        const decision = decideSessionBootstrap(me.ok ? 200 : me.status, {
+          fromLogin: hasFromLoginFlag(window.location.href),
+        });
+        if (decision.kind === 'authenticated') {
           const { ok, status, data } = await adminFetch<{ ok?: boolean; staff?: Staff; error?: string }>(
             apiBase,
             '',
@@ -71,6 +76,11 @@ export default function App() {
           );
           if (controller.signal.aborted) return;
           if (!ok || !data.staff) {
+            if (status === 401 && hasFromLoginFlag(window.location.href)) {
+              setBootstrapError('Signed in, but this app could not load your session. Try signing in again.');
+              setBootstrap('error');
+              return;
+            }
             if (status === 401) {
               const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
               window.location.assign(redirectUrl);
@@ -84,17 +94,27 @@ export default function App() {
           setSession({ mode: 'session', key: '', staff: data.staff });
           return;
         }
-        if (me.status === 404) {
+        if (decision.kind === 'legacy') {
           setBootstrap('legacy');
           return;
         }
-        if (me.status === 401) {
-          const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
-          window.location.assign(redirectUrl);
+        if (decision.kind === 'loop-blocked') {
+          setBootstrapError(decision.message);
+          setBootstrap('error');
           return;
         }
-        setBootstrap('legacy');
-      } catch {
+        const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+        window.location.assign(redirectUrl);
+      } catch (caught) {
+        if (hasFromLoginFlag(window.location.href)) {
+          setBootstrapError(
+            caught instanceof Error
+              ? caught.message
+              : 'Signed in, but this app could not load your session. Try signing in again.',
+          );
+          setBootstrap('error');
+          return;
+        }
         setBootstrap('legacy');
       }
     })();
@@ -143,6 +163,23 @@ export default function App() {
           <p className="brand-mark">TEMPLE / UNDERGROUND</p>
           <h1>Finance workspace</h1>
           <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!session && bootstrap === 'error') {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Finance workspace</h1>
+          <p role="alert" className="error-message">
+            {bootstrapError}
+          </p>
+          <p>
+            <a href={getDefaultLoginUrl()}>Back to sign in</a>
+          </p>
         </div>
       </main>
     );
@@ -204,11 +241,13 @@ export default function App() {
         setDraftKey('');
         setError('');
       }}
+      signOutError={signOutError}
       onSignOut={async () => {
-        try {
-          await authLogout(apiBase);
-        } catch {
-          // ignore network errors
+        setSignOutError('');
+        const result = await signOut(apiBase);
+        if (!result.ok) {
+          setSignOutError(result.message);
+          return;
         }
         window.location.assign(getDefaultLoginUrl());
       }}
@@ -220,12 +259,14 @@ function Workspace({
   connection,
   staff,
   authMode,
+  signOutError,
   onLock,
   onSignOut,
 }: {
   connection: Connection;
   staff: Staff;
   authMode: 'legacy' | 'session';
+  signOutError: string;
   onLock: () => void;
   onSignOut: () => void | Promise<void>;
 }) {
@@ -338,6 +379,11 @@ function Workspace({
               {authMode === 'session' ? 'Sign out' : 'Lock'}
             </Button>
           </div>
+          {signOutError ? (
+            <p role="alert" className="error-message">
+              {signOutError}
+            </p>
+          ) : null}
         </header>
         <main id="finance-main" className={`workspace-main${nav === 'Cash' ? ' workspace-main-register' : ''}`}>
           {visited.includes('Cash') ? (
