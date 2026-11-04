@@ -56,8 +56,10 @@ npm run test:dashboard
 npm run test:waiver-viewer
 ```
 
-The front-ends call the API at `VITE_API_BASE_URL` (default `http://localhost:3001`). Run
-the API from the signup repo (`npm run dev:api` there) when you need live data.
+In dev, the front-ends default to calling the API at `http://localhost:3001`. In
+production builds, they default to `https://api.templeunderground.com`. `VITE_API_BASE_URL`
+overrides either default. Run the API from the signup repo (`npm run dev:api` there) when
+you need live data.
 
 ## Conventions
 

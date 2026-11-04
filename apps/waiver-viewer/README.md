@@ -26,11 +26,11 @@ Open the Vite URL:
 http://localhost:5177
 ```
 
-The unlock page prefills `VITE_API_BASE_URL`, or `http://localhost:3001` when that variable is unset. Vite still proxies `/api` to `http://localhost:3001` if the API base is this dev origin.
+The unlock page prefills `VITE_API_BASE_URL` when set (trimmed; trailing slash ignored). When unset, dev defaults to `http://localhost:3001` and production builds default to `https://api.templeunderground.com`. Vite still proxies `/api` to `http://localhost:3001` if the API base is this dev origin.
 
 ## Deploy
 
-Build with `npm run build:waiver-viewer` and set `VITE_API_BASE_URL` to the API origin so the unlock page prefills it. Operators enter the staff key in the browser. It is not a build variable. Cloudflare Access is not required for this app.
+Build with `npm run build:waiver-viewer`. Production builds default to `https://api.templeunderground.com`; set `VITE_API_BASE_URL` only to point a build at a different API origin. Operators enter the staff key in the browser. It is not a build variable. Cloudflare Access is not required for this app.
 
 ## What the screen does
 

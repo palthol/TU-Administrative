@@ -154,7 +154,7 @@ Set these on wherever `services/api` runs (Render, VPS, etc.):
 ### Viewer app build
 
 - [ ] `npm run build:waiver-viewer` — deploy `apps/waiver-viewer/dist` to static hosting behind the same hostname.
-- [ ] Set `VITE_API_BASE_URL` to the API origin so the unlock page prefills it.
+- [ ] Only set `VITE_API_BASE_URL` when overriding the defaults (production builds default to `https://api.templeunderground.com`).
 - [ ] Smoke test: unlock with a staff key → the waiver list loads → expand one record. Signed PDFs stay on dashboard People.
 
 ### Phone shortcut
