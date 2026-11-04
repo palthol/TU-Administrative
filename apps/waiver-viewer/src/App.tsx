@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Toolbar } from './components/Toolbar';
 import { WaiverList } from './components/WaiverList';
 import type { WaiverDocument, WaiverListResponse } from './lib/types';
+import { authLogout, authMe } from './lib/auth-api';
 import {
   AUTH_ME_PATH,
   PAGE_SIZE,
@@ -17,6 +18,7 @@ import {
   type Staff,
 } from './lib/viewer-api';
 import { filterLoadedPage } from './lib/waiver-record';
+import { buildLoginRedirectUrl, getDefaultLoginUrl } from './lib/login-url';
 
 function useDebounced(value: string, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
@@ -30,7 +32,12 @@ function useDebounced(value: string, delayMs: number) {
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState('');
-  const [session, setSession] = useState<{ key: string; staff: Staff } | null>(null);
+  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy'>('checking');
+  const [session, setSession] = useState<
+    | { mode: 'legacy'; key: string; staff: Staff }
+    | { mode: 'session'; key: ''; staff: Staff }
+    | null
+  >(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const loginAbort = useRef<AbortController | null>(null);
@@ -49,6 +56,51 @@ export default function App() {
       loginAbort.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const me = await authMe(apiBase, controller.signal);
+        if (controller.signal.aborted) return;
+        if (me.ok) {
+          const { ok, status, data } = await adminFetch<{ ok?: boolean; staff?: Staff; error?: string }>(
+            apiBase,
+            '',
+            AUTH_ME_PATH,
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          if (!ok || !data.staff) {
+            if (status === 401) {
+              const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+              window.location.assign(redirectUrl);
+              return;
+            }
+            throw new Error(data.error || `Unable to load staff identity (HTTP ${status}).`);
+          }
+          if (!isSupportedStaff(data.staff)) {
+            throw new Error('The API did not return a supported staff identity.');
+          }
+          setSession({ mode: 'session', key: '', staff: data.staff });
+          return;
+        }
+        if (me.status === 404) {
+          setBootstrap('legacy');
+          return;
+        }
+        if (me.status === 401) {
+          const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+          window.location.assign(redirectUrl);
+          return;
+        }
+        setBootstrap('legacy');
+      } catch {
+        setBootstrap('legacy');
+      }
+    })();
+    return () => controller.abort();
+  }, [apiBase]);
 
   async function unlock(event: FormEvent) {
     event.preventDefault();
@@ -74,7 +126,7 @@ export default function App() {
       if (!isSupportedStaff(data.staff)) {
         throw new Error('The API did not return a supported staff identity.');
       }
-      setSession({ key, staff: data.staff });
+      setSession({ mode: 'legacy', key, staff: data.staff });
       setDraftKey('');
     } catch (caught) {
       if (!controller.signal.aborted) {
@@ -83,6 +135,18 @@ export default function App() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
+  }
+
+  if (!session && bootstrap === 'checking') {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Waiver review</h1>
+          <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
   }
 
   if (!session) {
@@ -137,10 +201,19 @@ export default function App() {
       apiBase={apiBase}
       adminKey={session.key}
       staff={session.staff}
+      authMode={session.mode}
       onLock={() => {
         setSession(null);
         setDraftKey('');
         setError('');
+      }}
+      onSignOut={async () => {
+        try {
+          await authLogout(apiBase);
+        } catch {
+          // ignore network errors
+        }
+        window.location.assign(getDefaultLoginUrl());
       }}
     />
   );
@@ -150,12 +223,16 @@ function WaiverWorkspace({
   apiBase,
   adminKey,
   staff,
+  authMode,
   onLock,
+  onSignOut,
 }: {
   apiBase: string;
   adminKey: string;
   staff: Staff;
+  authMode: 'legacy' | 'session';
   onLock: () => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [offset, setOffset] = useState(0);
@@ -232,8 +309,15 @@ function WaiverWorkspace({
       <header className="page-header">
         <div className="header-row">
           <h1>Waivers</h1>
-          <button type="button" className="secondary-button" onClick={onLock}>
-            Lock
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              if (authMode === 'session') void onSignOut();
+              else onLock();
+            }}
+          >
+            {authMode === 'session' ? 'Sign out' : 'Lock'}
           </button>
         </div>
         <p className="staff-line">

@@ -2,7 +2,15 @@
 
 Phone-first waiver review for operators. One surface: a list, then one expanded record.
 
-The app opens on a blocking unlock page. Enter the API base and a staff key. The key is checked with `GET /api/admin/auth/me`, kept in memory, and sent as `x-admin-key`. Lock or reload clears it. Roles that can unlock: `owner`, `finance`, `front_desk`.
+When the SSO endpoints are deployed, the viewer checks `GET /api/auth/me` (`fetch` uses
+`credentials: 'include'`). Apps never read the API cookie; signed-in state comes only from `/me`.
+If signed in, it unlocks automatically and reads staff identity from `GET /api/admin/auth/me`
+without sending `x-admin-key`. If not signed in, a `401` redirects to the dashboard login page
+(`VITE_LOGIN_URL`, default `https://admin.templeunderground.com/login`) with
+`?return_to=<current URL>`. If the SSO endpoints are not deployed yet (`GET /api/auth/me` returns
+`404`), the app falls back to the existing blocking unlock page: enter the API base and a staff key.
+The key is checked with `GET /api/admin/auth/me`, kept in memory, and sent as `x-admin-key`. Lock or
+reload clears it. Roles that can unlock: `owner`, `finance`, `front_desk`.
 
 ## Data source
 

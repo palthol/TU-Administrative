@@ -15,10 +15,11 @@ alwaysApply: true
 - When building or editing an admin screen, follow `docs/frontend-design/` — each screen is
   mapped to its endpoint, request body, and response shape. Keep those docs in sync if a
   call changes.
-- Admin calls, including the waiver viewer, send `x-admin-key`. Money is
-  integer cents. Success is `200 { ok:true, ... }`; failure is `{ ok:false, error }`. Reuse
-  `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) (and the dashboard's matching helpers)
-  for new admin calls.
+- Admin calls, including the waiver viewer, use `credentials: 'include'`. Prefer the SSO
+  session (`GET /api/auth/me`); never read the API cookie. The legacy `x-admin-key` gate is
+  still a fallback. Money is integer cents. Success is `200 { ok:true, ... }`; failure is
+  `{ ok:false, error }`. Reuse `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) (and the
+  dashboard's matching helpers) for new admin calls.
 - Default scope here is infrastructure / scaffolding / documentation — not UI polish unless
   explicitly requested.
 - Cross-tool agent guide: `AGENTS.md` (thin pointers: `CHATGPT.md`, `CODEX.md`, `GROK.md`).

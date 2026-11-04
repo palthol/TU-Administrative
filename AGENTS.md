@@ -9,7 +9,7 @@ npm-workspaces monorepo. Node >= 22, npm >= 10.
 ```
 apps/dashboard/       Operator dashboard (Today, People, Classes, Billing, Reports). UI built.
 apps/receipts/        Operator finance tool (cash log, invoices, formal billing). UI built.
-apps/waiver-viewer/   Mobile waiver review app (staff-key unlock, same gate as dashboard).
+apps/waiver-viewer/   Mobile waiver review app (SSO login or staff-key unlock fallback).
 docs/frontend-design/ Design home: per-screen → API function maps for the admin apps.
 ```
 
@@ -61,10 +61,16 @@ production builds, they default to `https://api.templeunderground.com`. `VITE_AP
 overrides either default. Run the API from the signup repo (`npm run dev:api` there) when
 you need live data.
 
+SSO login is `/login` on the dashboard (`VITE_LOGIN_URL`, production default
+`https://admin.templeunderground.com/login`). All admin `fetch` calls use `credentials: 'include'`.
+Apps never read the API cookie (`__Host-tu_admin_session`); signed-in state is `GET /api/auth/me`
+only. If `/api/auth/me` is `404`, the existing staff-key unlock page remains as a fallback.
+
 ## Conventions
 
-- Admin calls, including the waiver viewer, send `x-admin-key`. The waiver viewer
-  unlocks through `GET /api/admin/auth/me`. See `docs/frontend-design/README.md`.
+- Admin calls, including the waiver viewer, use `credentials: 'include'`. Prefer the SSO
+  session (`GET /api/auth/me`). The legacy `x-admin-key` gate is still present as a fallback
+  until a follow-up PR removes it. See `docs/frontend-design/README.md`.
 - Money is integer cents; success is `200 { ok:true, ... }`, failure is `{ ok:false, error }`.
 - Reuse `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) for new admin calls. The
   dashboard also has `apps/dashboard/src/lib/admin-api.ts` / `operator-api.ts` — keep

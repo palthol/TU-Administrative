@@ -1,3 +1,5 @@
+import { buildLoginRedirectUrl, getDefaultLoginUrl } from './login-url';
+
 export type AdminFetchResult<T = unknown> = {
   ok: boolean;
   status: number;
@@ -48,10 +50,16 @@ export async function adminFetch<T = Record<string, unknown>>(
       headers,
       body,
       signal: options.signal,
+      credentials: 'include',
     });
     const data = (await res.json().catch(() => ({}))) as T;
-    if (res.status === 401 && adminKey.trim()) {
-      window.dispatchEvent(new Event('finance-session-expired'));
+    if (res.status === 401) {
+      if (adminKey.trim()) {
+        window.dispatchEvent(new Event('finance-session-expired'));
+      } else if (typeof globalThis.location?.assign === 'function') {
+        const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), globalThis.location.href);
+        globalThis.location.assign(redirectUrl);
+      }
     }
     return { ok: res.ok, status: res.status, data };
   } catch (err) {

@@ -13,7 +13,8 @@ backend** — the deployed API and Supabase schema live in the `temple undergrou
 ```
 Browser (dashboard / receipts / waiver-viewer, Vite)
   -> API in the `temple underground signup` repo (services/api, :3001 locally)
-       - /api/admin/*   guarded by x-admin-key (all three apps)
+       - /api/auth/*    cookie-based session auth (SSO) when deployed
+       - /api/admin/*   guarded by cookie session when signed in, otherwise (legacy) x-admin-key
        - /api/viewer/*  Cloudflare Access route; the waiver viewer does not call it
   -> Supabase (Postgres) via the service-role key (server-only, NOT in this repo)
 ```
@@ -32,6 +33,16 @@ npm run dev:waiver-viewer
 In dev, the apps default to calling the API at `http://localhost:3001`. In production
 builds, they default to `https://api.templeunderground.com`. Set `VITE_API_BASE_URL` to
 override either default.
+
+SSO login lives at `/login` in the dashboard app and calls `POST /api/auth/login`.
+All admin API calls use `fetch(..., { credentials: 'include' })`. The API sets a host-only
+`__Host-tu_admin_session` cookie on `api.templeunderground.com` (`SameSite=Strict`, no `Domain`).
+Apps never read that cookie; signed-in state comes only from `GET /api/auth/me`. When the SSO
+endpoints are deployed, a `401` redirects to the dashboard login page. If the SSO endpoints are
+not deployed yet (`GET /api/auth/me` returns `404`), the apps fall back to the existing
+in-browser staff-key unlock page (the legacy `x-admin-key` gate). Set `VITE_LOGIN_URL` to
+override where other tools redirect on sign-in / sign-out; defaults to the local dashboard
+login in dev and `https://admin.templeunderground.com/login` in production builds.
 
 ## Scripts
 

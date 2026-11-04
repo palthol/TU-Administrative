@@ -6,7 +6,17 @@ reference lives there at `docs/admin-api.md`; this file is the front-end-facing 
 the exact shapes the UIs depend on.
 
 - **Base URL:** `http://localhost:3001` locally; the deployed host in production.
-- **Admin auth:** header `x-admin-key: <ADMIN_API_KEY>` on every `/api/admin/*` call.
+- **Credentials:** all calls use `fetch(..., { credentials:'include' })`. Apps never read cookies;
+  auth state comes only from `GET /api/auth/me`.
+- **SSO auth:** `POST /api/auth/login` with `{ email, password }` returns `200 { email }` and the API
+  sets a host-only HttpOnly cookie named `__Host-tu_admin_session` on `api.templeunderground.com`
+  (`SameSite=Strict`, no `Domain`), or `401`. `503` when the auth provider is down. `429 { error:"rate_limited" }`
+  when rate limited. `GET /api/auth/me` returns `200 { email }` or `401`. `POST /api/auth/logout`
+  returns `204`.
+- **Admin auth:** when SSO is deployed, `/api/admin/*` is authorized by that cookie session (browser
+  attaches it because calls use `credentials:'include'`). If SSO is not deployed yet
+  (`GET /api/auth/me` returns `404`), `/api/admin/*` is guarded by header
+  `x-admin-key: <ADMIN_API_KEY>`.
 - **Viewer auth:** `GET /api/viewer/*` on the API is still Cloudflare Access. The waiver
   viewer app does not call it. That app sends `x-admin-key` to `/api/admin/auth/me` and
   `GET /api/admin/reporting/views/waiver-documents`.

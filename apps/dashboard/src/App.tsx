@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDefaultApiBase } from "@/lib/admin-api";
+import { authLogout, authMe } from "@/lib/auth-api";
+import { buildLoginRedirectUrl, getDefaultLoginUrl } from "@/lib/login-url";
 import { readAdmin } from "@/lib/operator-api";
 import {
   localDate,
@@ -31,9 +33,12 @@ const fromHash = (): Destination =>
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState("");
-  const [session, setSession] = useState<{ key: string; staff: Staff } | null>(
-    null,
-  );
+  const [bootstrap, setBootstrap] = useState<"checking" | "legacy">("checking");
+  const [session, setSession] = useState<
+    | { mode: "legacy"; key: string; staff: Staff }
+    | { mode: "session"; key: ""; staff: Staff }
+    | null
+  >(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const loginAbort = useRef<AbortController | null>(null);
@@ -51,6 +56,49 @@ export default function App() {
       loginAbort.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const me = await authMe(apiBase, controller.signal);
+        if (controller.signal.aborted) return;
+        if (me.ok) {
+          const data = await readAdmin<{ staff: Staff }>(
+            apiBase,
+            "",
+            "/api/admin/auth/me",
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          if (
+            !data.staff ||
+            !["owner", "finance", "front_desk"].includes(data.staff.role)
+          ) {
+            throw new Error("The API did not return a supported staff identity.");
+          }
+          setSession({ mode: "session", key: "", staff: data.staff });
+          return;
+        }
+        if (me.status === 404) {
+          setBootstrap("legacy");
+          return;
+        }
+        if (me.status === 401) {
+          const loginUrl = buildLoginRedirectUrl(
+            getDefaultLoginUrl(),
+            window.location.href,
+          );
+          window.location.assign(loginUrl);
+          return;
+        }
+        setBootstrap("legacy");
+      } catch {
+        setBootstrap("legacy");
+      }
+    })();
+    return () => controller.abort();
+  }, [apiBase]);
   async function unlock(event: FormEvent) {
     event.preventDefault();
     if (loading || !draftKey.trim()) return;
@@ -72,7 +120,7 @@ export default function App() {
       )
         throw new Error("The API did not return a supported staff identity.");
       if (!controller.signal.aborted) {
-        setSession({ key, staff: data.staff });
+        setSession({ mode: "legacy", key, staff: data.staff });
         setDraftKey("");
       }
     } catch (e) {
@@ -82,6 +130,16 @@ export default function App() {
       if (!controller.signal.aborted) setLoading(false);
     }
   }
+  if (!session && bootstrap === "checking")
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Operator workspace</h1>
+          <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
   if (!session)
     return (
       <main className="unlock-page">
@@ -135,10 +193,19 @@ export default function App() {
     <Workspace
       connection={{ apiBase, adminKey: session.key }}
       staff={session.staff}
+      authMode={session.mode}
       onLock={() => {
         setSession(null);
         setDraftKey("");
         setError("");
+      }}
+      onSignOut={async () => {
+        try {
+          await authLogout(apiBase);
+        } catch {
+          // ignore network errors; still attempt to leave the app
+        }
+        window.location.assign(getDefaultLoginUrl());
       }}
     />
   );
@@ -147,11 +214,15 @@ export default function App() {
 function Workspace({
   connection,
   staff,
+  authMode,
   onLock,
+  onSignOut,
 }: {
   connection: Connection;
   staff: Staff;
+  authMode: "legacy" | "session";
   onLock: () => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const [nav, setNav] = useState<Destination>(fromHash);
   const [visited, setVisited] = useState<Destination[]>([fromHash()]);
@@ -286,8 +357,14 @@ function Workspace({
             >
               More
             </a>
-            <Button variant="outline" onClick={onLock}>
-              Lock / Sign out
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (authMode === "session") void onSignOut();
+                else onLock();
+              }}
+            >
+              {authMode === "session" ? "Sign out" : "Lock"}
             </Button>
           </div>
         </header>

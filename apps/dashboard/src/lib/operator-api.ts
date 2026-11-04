@@ -1,4 +1,5 @@
 import { adminFetch } from "./admin-api";
+import { redirectToLogin } from "./login-url";
 import { agendaQuery, localSessions, type Session } from "./operator";
 
 export async function readAdmin<T>(
@@ -13,8 +14,15 @@ export async function readAdmin<T>(
   >(base, key, path, {
     signal: signal ? AbortSignal.any([signal, timedSignal]) : timedSignal,
   });
-  if (status === 401)
-    window.dispatchEvent(new Event("operator-session-expired"));
+  if (status === 401) {
+    if (key.trim()) {
+      window.dispatchEvent(new Event("operator-session-expired"));
+    } else {
+      const returnTo = globalThis.location?.href ?? "";
+      redirectToLogin(returnTo);
+      throw new Error("Unauthorized.");
+    }
+  }
   if (!ok || data.ok !== true) {
     if (status === 401) throw new Error("Session expired. Unlock again.");
     if (status === 403)
