@@ -6,7 +6,7 @@ Phone-first list → expand. Cloudflare Access is not the gate. The app opens on
 
 **Redesign note:** [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md).
 
-The Vite dev server is port **5177**. `VITE_API_BASE_URL` prefills the API base (default `http://localhost:3001`).
+The Vite dev server is port **5177**. `VITE_API_BASE_URL` prefills the API base (trimmed; trailing slash ignored). When unset, dev defaults to `http://localhost:3001` and production builds default to `https://api.templeunderground.com`.
 
 ## Surface → endpoint
 

@@ -4,8 +4,22 @@ export type AdminFetchResult<T = unknown> = {
   data: T;
 };
 
+export const DEV_API_BASE_URL = 'http://localhost:3001';
+export const PRODUCTION_API_BASE_URL = 'https://api.templeunderground.com';
+
+function normalizedApiBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, '');
+}
+
+export function resolveApiBaseUrl(configured: unknown, isDev: boolean): string {
+  return normalizedApiBaseUrl(configured) ?? (isDev ? DEV_API_BASE_URL : PRODUCTION_API_BASE_URL);
+}
+
 export function getDefaultApiBase(): string {
-  return import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || 'http://localhost:3001';
+  return resolveApiBaseUrl(import.meta.env?.VITE_API_BASE_URL, Boolean(import.meta.env?.DEV));
 }
 
 export async function adminFetch<T = Record<string, unknown>>(

@@ -41,7 +41,9 @@ npm run dev:dashboard
 ```
 
 Copy `apps/dashboard/.env.example` to `.env` and set values.  
-Set `VITE_API_BASE_URL` if the API is not at `http://localhost:3001` (start API from signup repo: `npm run dev:api`).
+In dev, `VITE_API_BASE_URL` defaults to `http://localhost:3001`. In production builds it
+defaults to `https://api.templeunderground.com`. Set `VITE_API_BASE_URL` only to override
+those defaults (for example when pointing a build at a different host).
 
 Paste **`x-admin-key`** only in trusted environments; it is not persisted in localStorage.
 

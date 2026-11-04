@@ -29,8 +29,9 @@ npm run dev:receipts
 npm run dev:waiver-viewer
 ```
 
-Set `VITE_API_BASE_URL` if the API is not on `http://localhost:3001`. Start the API itself
-from the signup repo: `npm run dev:api`.
+In dev, the apps default to calling the API at `http://localhost:3001`. In production
+builds, they default to `https://api.templeunderground.com`. Set `VITE_API_BASE_URL` to
+override either default.
 
 ## Scripts
 

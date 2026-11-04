@@ -52,11 +52,22 @@ export class ViewerRequestError extends Error {
   }
 }
 
+export const DEV_API_BASE_URL = 'http://localhost:3001';
+export const PRODUCTION_API_BASE_URL = 'https://api.templeunderground.com';
+
+function normalizedApiBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, '');
+}
+
+export function resolveApiBaseUrl(configured: unknown, isDev: boolean): string {
+  return normalizedApiBaseUrl(configured) ?? (isDev ? DEV_API_BASE_URL : PRODUCTION_API_BASE_URL);
+}
+
 export function getDefaultApiBase(): string {
-  const configured = import.meta.env?.VITE_API_BASE_URL;
-  return typeof configured === 'string' && configured.trim()
-    ? configured.replace(/\/$/, '')
-    : 'http://localhost:3001';
+  return resolveApiBaseUrl(import.meta.env?.VITE_API_BASE_URL, Boolean(import.meta.env?.DEV));
 }
 
 function dateParam(value: string | undefined): string | null {

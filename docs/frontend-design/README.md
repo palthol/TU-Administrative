@@ -42,8 +42,9 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 
 ## Conventions (apply to every admin call)
 
-- **Base URL:** the deployed API host. Locally `http://localhost:3001`
-  (`VITE_API_BASE_URL` overrides; falls back to `http://localhost:3001`).
+- **Base URL:** in production builds, defaults to `https://api.templeunderground.com`.
+  In dev, defaults to `http://localhost:3001`. `VITE_API_BASE_URL` overrides either
+  default.
 - **Auth (`/api/admin/*`):** send header `x-admin-key: <ADMIN_API_KEY>`. Missing/wrong key
   → `401 { ok:false, error:"unauthorized" }`. The key is operator-entered in the UI; never
   bake it into a build.
