@@ -9,7 +9,11 @@ This file remains the live endpoint wiring map (destination names updated below)
 
 ## Shell
 
-- **Unlock gate:** API base + staff key → `GET /api/admin/auth/me` (roles `owner` |
+- **SSO session probe:** `GET /api/auth/me` (`credentials:'include'`; never read the API cookie). `200` unlocks
+  automatically and reads staff identity from `GET /api/admin/auth/me` without `x-admin-key`. `401`
+  redirects to the dashboard login page (`VITE_LOGIN_URL`) with `?return_to=<current URL>`. If the SSO
+  endpoints are not deployed yet (`404`), receipts falls back to the legacy unlock gate.
+- **Unlock gate (legacy fallback):** API base + staff key → `GET /api/admin/auth/me` (roles `owner` |
   `finance` | `front_desk`). Key is memory-only; Lock/reload clears it. `401` dispatches
   `finance-session-expired` and locks the workspace.
 - **Fetch helper:** `adminFetch(apiBase, adminKey, path, { method, json, signal? })` →

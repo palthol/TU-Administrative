@@ -45,9 +45,18 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
 - **Base URL:** in production builds, defaults to `https://api.templeunderground.com`.
   In dev, defaults to `http://localhost:3001`. `VITE_API_BASE_URL` overrides either
   default.
-- **Auth (`/api/admin/*`):** send header `x-admin-key: <ADMIN_API_KEY>`. Missing/wrong key
-  → `401 { ok:false, error:"unauthorized" }`. The key is operator-entered in the UI; never
-  bake it into a build.
+- **Credentials:** all calls use `fetch(..., { credentials:'include' })`. The API sets a host-only
+  `__Host-tu_admin_session` cookie on `api.templeunderground.com` (`SameSite=Strict`, no `Domain`).
+  Apps never read that cookie; auth state comes only from `GET /api/auth/me`.
+- **Auth (`/api/auth/*` and `/api/admin/*`):**
+  - When SSO is deployed, `POST /api/auth/login` sets that cookie and `GET /api/auth/me`
+    returns `{ email }`. `/api/admin/*` calls are authorized by the cookie the browser attaches
+    to the API origin. Login `503` means the auth provider is down; `429 { error:"rate_limited" }`
+    means wait and retry.
+  - If the SSO endpoints are not deployed yet (`GET /api/auth/me` returns `404`), the apps
+    fall back to the legacy staff-key gate: send header `x-admin-key: <ADMIN_API_KEY>` on
+    `/api/admin/*` calls. Missing/wrong key → `401 { ok:false, error:"unauthorized" }`.
+    The key is operator-entered in the UI; never bake it into a build.
 - **Waiver viewer:** same runtime staff key as the other admin apps (`x-admin-key`),
   checked with `GET /api/admin/auth/me`, then
   `GET /api/admin/reporting/views/waiver-documents`. `/api/viewer/*` remains a
@@ -57,8 +66,8 @@ Its endpoint map and explicit gates supersede the old developer-console behavior
   `data.error`.
 - **Money is integer cents** end to end. The UI converts dollars→cents before sending and
   formats cents→dollars on display (`parseDollarsToCents`, `formatUsdFromCents`).
-- **The shared fetch helper** is `apps/receipts/src/lib/admin-api.ts` (`adminFetch`).
-  Reuse this pattern in any new admin screen.
+- **The shared fetch helper** is `apps/receipts/src/lib/admin-api.ts` (`adminFetch`) and
+  its equivalents in the other apps. Reuse this pattern in any new admin screen.
 
 ## Dependency note (read before building billing screens)
 

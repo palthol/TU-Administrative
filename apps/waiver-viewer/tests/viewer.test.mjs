@@ -136,7 +136,7 @@ test('viewerFetch sends the staff key, requires ok:true, and locks on 401', asyn
       assert.equal(String(url), `http://localhost:3001${listPath}`);
       assert.equal(init.headers['x-admin-key'], 'staff-key');
       assert.equal(init.method, 'GET');
-      assert.equal(init.credentials, undefined);
+      assert.equal(init.credentials, 'include');
       assert.ok(init.signal);
       return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
         status: 401,

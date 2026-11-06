@@ -2,7 +2,15 @@
 
 Status: **implemented** in `apps/waiver-viewer`.
 
-Phone-first list → expand. Cloudflare Access is not the gate. The app opens on the same blocking unlock page as the dashboard and receipts: API base plus staff key, checked with `GET /api/admin/auth/me`. The key stays in memory and is sent as `x-admin-key`. Lock or reload clears it.
+Phone-first list → expand. Cloudflare Access is not the gate.
+
+When the SSO endpoints are deployed, the app checks `GET /api/auth/me` (`credentials:'include'`; never read the API cookie):
+- `200` → unlock automatically, then read staff identity from `GET /api/admin/auth/me` (no `x-admin-key`)
+- `401` → redirect to the dashboard login page (`VITE_LOGIN_URL`) with `?return_to=<current URL>`
+
+If the SSO endpoints are not deployed yet (`GET /api/auth/me` returns `404`), the app falls back to the
+blocking unlock page: API base plus staff key, checked with `GET /api/admin/auth/me`. The key stays in
+memory and is sent as `x-admin-key`. Lock or reload clears it.
 
 **Redesign note:** [`waiver-viewer-redesign.md`](./waiver-viewer-redesign.md).
 
@@ -12,7 +20,8 @@ The Vite dev server is port **5177**. `VITE_API_BASE_URL` prefills the API base 
 
 | Screen / action | Method · Endpoint | Auth | Reads |
 | --- | --- | --- | --- |
-| **Unlock** | `GET /api/admin/auth/me` | `x-admin-key` | `staff.display_name`, `staff.role` (`owner` \| `finance` \| `front_desk`), `staff.auth_method` |
+| **SSO session probe** | `GET /api/auth/me` | cookie | `{ email }` (200) |
+| **Unlock (legacy fallback)** | `GET /api/admin/auth/me` | `x-admin-key` | `staff.display_name`, `staff.role` (`owner` \| `finance` \| `front_desk`), `staff.auth_method` |
 | **Waiver list** (mount and Refresh) | `GET /api/admin/reporting/views/waiver-documents?sort=signed_at_utc&order=desc&limit=50&offset=` | `x-admin-key` | `rows[]` from `view_waiver_documents` |
 | Sort A–Z | `sort=participant_full_name&order=asc` | " | Resets `offset` to 0 |
 | Signed dates | `start=YYYY-MM-DD` and/or `end=YYYY-MM-DD`, only when set | " | Resets `offset` to 0 |

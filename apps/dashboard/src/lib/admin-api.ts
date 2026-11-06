@@ -47,6 +47,7 @@ export async function adminFetch<T = Record<string, unknown>>(
     headers,
     body,
     signal: options.signal,
+    credentials: 'include',
   });
   const data = (await res.json().catch(() => ({}))) as T;
   return { ok: res.ok, status: res.status, data };

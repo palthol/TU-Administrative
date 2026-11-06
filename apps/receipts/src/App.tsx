@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { adminFetch, getDefaultApiBase } from '@/lib/admin-api';
+import { authMe, decideSessionBootstrap, signOut } from '@/lib/auth-api';
 import {
   destinations,
   fromHash,
@@ -15,6 +16,7 @@ import { Invoice } from '@/components/finance/Invoice';
 import { Recent } from '@/components/finance/Recent';
 import { Formal } from '@/components/finance/Formal';
 import { More } from '@/components/finance/More';
+import { buildLoginRedirectUrl, getDefaultLoginUrl, hasFromLoginFlag } from '@/lib/login-url';
 
 const SUPPORTED_ROLES = ['owner', 'finance', 'front_desk'];
 
@@ -29,7 +31,14 @@ const navMeta: Record<Destination, { symbol: string; label: string }> = {
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState('');
-  const [session, setSession] = useState<{ key: string; staff: Staff } | null>(null);
+  const [bootstrap, setBootstrap] = useState<'checking' | 'legacy' | 'error'>('checking');
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [signOutError, setSignOutError] = useState('');
+  const [session, setSession] = useState<
+    | { mode: 'legacy'; key: string; staff: Staff }
+    | { mode: 'session'; key: ''; staff: Staff }
+    | null
+  >(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const loginAbort = useRef<AbortController | null>(null);
@@ -48,6 +57,69 @@ export default function App() {
       loginAbort.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const me = await authMe(apiBase, controller.signal);
+        if (controller.signal.aborted) return;
+        const decision = decideSessionBootstrap(me.ok ? 200 : me.status, {
+          fromLogin: hasFromLoginFlag(window.location.href),
+        });
+        if (decision.kind === 'authenticated') {
+          const { ok, status, data } = await adminFetch<{ ok?: boolean; staff?: Staff; error?: string }>(
+            apiBase,
+            '',
+            '/api/admin/auth/me',
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          if (!ok || !data.staff) {
+            if (status === 401 && hasFromLoginFlag(window.location.href)) {
+              setBootstrapError('Signed in, but this app could not load your session. Try signing in again.');
+              setBootstrap('error');
+              return;
+            }
+            if (status === 401) {
+              const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+              window.location.assign(redirectUrl);
+              return;
+            }
+            throw new Error(data.error || `Unable to load staff identity (HTTP ${status}).`);
+          }
+          if (!SUPPORTED_ROLES.includes(data.staff.role)) {
+            throw new Error('The API did not return a supported staff identity.');
+          }
+          setSession({ mode: 'session', key: '', staff: data.staff });
+          return;
+        }
+        if (decision.kind === 'legacy') {
+          setBootstrap('legacy');
+          return;
+        }
+        if (decision.kind === 'loop-blocked') {
+          setBootstrapError(decision.message);
+          setBootstrap('error');
+          return;
+        }
+        const redirectUrl = buildLoginRedirectUrl(getDefaultLoginUrl(), window.location.href);
+        window.location.assign(redirectUrl);
+      } catch (caught) {
+        if (hasFromLoginFlag(window.location.href)) {
+          setBootstrapError(
+            caught instanceof Error
+              ? caught.message
+              : 'Signed in, but this app could not load your session. Try signing in again.',
+          );
+          setBootstrap('error');
+          return;
+        }
+        setBootstrap('legacy');
+      }
+    })();
+    return () => controller.abort();
+  }, [apiBase]);
 
   async function unlock(event: FormEvent) {
     event.preventDefault();
@@ -73,7 +145,7 @@ export default function App() {
       if (!SUPPORTED_ROLES.includes(data.staff.role)) {
         throw new Error('The API did not return a supported staff identity.');
       }
-      setSession({ key, staff: data.staff });
+      setSession({ mode: 'legacy', key, staff: data.staff });
       setDraftKey('');
     } catch (e) {
       if (!controller.signal.aborted) {
@@ -82,6 +154,35 @@ export default function App() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
+  }
+
+  if (!session && bootstrap === 'checking') {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Finance workspace</h1>
+          <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!session && bootstrap === 'error') {
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Finance workspace</h1>
+          <p role="alert" className="error-message">
+            {bootstrapError}
+          </p>
+          <p>
+            <a href={getDefaultLoginUrl()}>Back to sign in</a>
+          </p>
+        </div>
+      </main>
+    );
   }
 
   if (!session) {
@@ -134,10 +235,21 @@ export default function App() {
     <Workspace
       connection={{ apiBase, adminKey: session.key }}
       staff={session.staff}
+      authMode={session.mode}
       onLock={() => {
         setSession(null);
         setDraftKey('');
         setError('');
+      }}
+      signOutError={signOutError}
+      onSignOut={async () => {
+        setSignOutError('');
+        const result = await signOut(apiBase);
+        if (!result.ok) {
+          setSignOutError(result.message);
+          return;
+        }
+        window.location.assign(getDefaultLoginUrl());
       }}
     />
   );
@@ -146,11 +258,17 @@ export default function App() {
 function Workspace({
   connection,
   staff,
+  authMode,
+  signOutError,
   onLock,
+  onSignOut,
 }: {
   connection: Connection;
   staff: Staff;
+  authMode: 'legacy' | 'session';
+  signOutError: string;
   onLock: () => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const [nav, setNav] = useState<Destination>(fromHash);
   const [visited, setVisited] = useState<Destination[]>([fromHash()]);
@@ -250,10 +368,22 @@ function Workspace({
                 Formal
               </a>
             </div>
-            <Button type="button" variant="outline" onClick={onLock}>
-              Lock
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (authMode === 'session') void onSignOut();
+                else onLock();
+              }}
+            >
+              {authMode === 'session' ? 'Sign out' : 'Lock'}
             </Button>
           </div>
+          {signOutError ? (
+            <p role="alert" className="error-message">
+              {signOutError}
+            </p>
+          ) : null}
         </header>
         <main id="finance-main" className={`workspace-main${nav === 'Cash' ? ' workspace-main-register' : ''}`}>
           {visited.includes('Cash') ? (
