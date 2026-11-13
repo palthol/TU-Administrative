@@ -3,7 +3,6 @@ import { buildReceiptCardModel, type ReceiptCardInput, type ReceiptCardRow, type
 const PRINT_PAIRS: Array<[string, string]> = [
   ['Person', 'Plan'],
   ['Payment', 'Received by'],
-  ['Date', 'Note'],
 ];
 
 function fieldValue(rows: ReceiptCardRow[], label: string): string {
@@ -56,6 +55,12 @@ function PrintSheet({
               </div>
             </div>
           ))}
+          <div className="receipt-sheet-row receipt-sheet-row-note">
+            <div className="receipt-sheet-cell">
+              <dt>Note</dt>
+              <dd>{fieldValue(rows, 'Note')}</dd>
+            </div>
+          </div>
         </dl>
       </div>
       <footer className="receipt-foot">

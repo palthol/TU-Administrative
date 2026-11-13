@@ -41,6 +41,7 @@ This file remains the live endpoint wiring map (destination names updated below)
 Form: member display name, plan prefill (when the API is present), amount received (USD→cents),
 payment chips (`cash|card|cashapp|venmo|paypal|zelle|other`), received by, optional note.
 Embeds Participant lookup. After save, shows a ruled receipt document (screen on cellar; print is a Letter member/gym pair).
+Date appears once, as the line under the amount (`Nov 12, 2026 · 11:31 PM ET`); there is no DATE field.
 
 | Action | Method · Endpoint | Request body | Success | On success UI |
 | --- | --- | --- | --- | --- |

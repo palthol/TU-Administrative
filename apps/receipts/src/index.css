@@ -955,6 +955,9 @@ html[data-receipt-print="single"] .receipt-half-gym,
 .receipt-sheet-row:last-child {
   margin-bottom: 0;
 }
+.receipt-sheet-row-note {
+  grid-template-columns: 1fr;
+}
 .receipt-sheet-cell {
   min-width: 0;
   padding: 0;
@@ -990,36 +993,8 @@ html[data-receipt-print="single"] .receipt-half-gym,
   print-color-adjust: exact;
 }
 
-html[data-receipt-shot="phone"] .operator-rail,
-html[data-receipt-shot="phone"] .workspace-header,
-html[data-receipt-shot="phone"] .bottom-nav,
-html[data-receipt-shot="phone"] .register-sticky,
-html[data-receipt-shot="phone"] .skip-link,
-html[data-receipt-shot="phone"] .receipt-actions,
-html[data-receipt-shot="phone"] .print-hide {
+html[data-receipt-shot="phone"] .skip-link {
   display: none !important;
-}
-html[data-receipt-shot="phone"],
-html[data-receipt-shot="phone"] body,
-html[data-receipt-shot="phone"] #root,
-html[data-receipt-shot="phone"] .operator-shell,
-html[data-receipt-shot="phone"] .operator-body,
-html[data-receipt-shot="phone"] .workspace-main,
-html[data-receipt-shot="phone"] .register-page,
-html[data-receipt-shot="phone"] .receipt-stage {
-  width: 390px !important;
-  height: 844px !important;
-  min-height: 844px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  background: var(--receipt-cellar) !important;
-}
-html[data-receipt-shot="phone"] .receipt-screen {
-  width: 390px;
-  height: 844px;
-  max-width: none;
-  padding: 64px 24px 48px;
 }
 .receipt-actions {
   display: grid;
@@ -1056,15 +1031,60 @@ html[data-receipt-shot="phone"] .receipt-screen {
 }
 
 @media (max-width: 1023px) {
-  .receipt-open .workspace-main-register,
+  .operator-body:has(.receipt-open) {
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .operator-body:has(.receipt-open) .workspace-main {
+    flex: 1;
+    min-height: 0;
+    padding: 0 0 calc(60px + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
   .receipt-open {
-    padding-bottom: calc(9.5rem + env(safe-area-inset-bottom, 0px));
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
-  .receipt-actions .receipt-desktop-only {
-    display: none !important;
+  .receipt-open .receipt-stage {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
-  .receipt-actions {
-    padding-bottom: 8.5rem;
+  .receipt-open .receipt-screen {
+    padding: 28px 20px 16px;
+    max-width: none;
+    height: 100%;
+  }
+  .receipt-open .receipt-hero {
+    padding: 16px 0 18px;
+  }
+  .receipt-open .receipt-amount {
+    font-size: 52px;
+  }
+  .receipt-open .receipt-screen-fields > div {
+    min-height: 36px;
+    padding: 8px 0;
+  }
+  .receipt-open .receipt-foot {
+    margin-top: 18px;
+  }
+  .receipt-open .receipt-actions {
+    grid-template-columns: 1fr 1fr;
+    padding: 0.75rem 1rem 0.65rem;
+    margin: 0;
+    max-width: none;
+    background: #f7f7f5;
+  }
+  .receipt-open .receipt-print-mode,
+  .receipt-open .receipt-email-note {
+    grid-column: 1 / -1;
   }
 }
 

@@ -79,7 +79,6 @@ export function buildReceiptCardModel(input: ReceiptCardInput): ReceiptCardModel
       { label: 'Plan', value: input.planName?.trim() ?? '' },
       { label: 'Payment', value: paymentModeLabel(input.paymentMethod) },
       { label: 'Received by', value: input.receivedBy.trim() },
-      { label: 'Date', value: dateLine },
       { label: 'Note', value: input.note?.trim() ?? '' },
     ],
     receiptRef: shortReceiptRef(input.entryId),

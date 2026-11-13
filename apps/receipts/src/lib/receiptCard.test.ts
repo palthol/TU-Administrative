@@ -42,7 +42,7 @@ describe('formatReceiptDateTime', () => {
 });
 
 describe('receipt card text', () => {
-  it('shows gym, person, plan, amount, payment, received by, date, and note', () => {
+  it('shows gym, person, plan, amount, payment, received by, and note, with date only under the amount', () => {
     const card = buildReceiptCardModel(sample);
     expect(card.gymName).toBe('Temple Underground');
     expect(card.title).toBe('Receipt');
@@ -54,14 +54,14 @@ describe('receipt card text', () => {
       { label: 'Plan', value: 'Unlimited monthly' },
       { label: 'Payment', value: 'Cash' },
       { label: 'Received by', value: 'Singh' },
-      { label: 'Date', value: DATE_LINE },
       { label: 'Note', value: 'November dues' },
     ]);
+    expect(card.rows.some((row) => row.label === 'Date')).toBe(false);
     expect(card.receiptRef).toBe('TU-A1B2C3D4');
     expect(receiptCardContainsDatabaseId(card, ENTRY_ID)).toBe(false);
   });
 
-  it('keeps plan and note rows when empty so print layout stays a 2×3 grid', () => {
+  it('keeps plan and note rows when empty so print layout stays even', () => {
     const card = buildReceiptCardModel({
       ...sample,
       planName: '  ',
@@ -72,7 +72,6 @@ describe('receipt card text', () => {
       'Plan',
       'Payment',
       'Received by',
-      'Date',
       'Note',
     ]);
     expect(card.rows.find((row) => row.label === 'Plan')?.value).toBe('');

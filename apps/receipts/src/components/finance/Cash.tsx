@@ -191,18 +191,13 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
       <Button type="button" className="fat-action" onClick={() => printReceipt(undefined, printCopies)}>
         Print
       </Button>
-      <Button
-        type="button"
-        className="fat-action receipt-desktop-only"
-        variant="secondary"
-        onClick={() => void onShare()}
-      >
+      <Button type="button" className="fat-action" variant="secondary" onClick={() => void onShare()}>
         Share or copy
       </Button>
       <Button type="button" className="fat-action" variant="secondary" asChild>
         <a href={mailtoHref}>Email</a>
       </Button>
-      <Button type="button" className="fat-action receipt-desktop-only" variant="secondary" onClick={logAnother}>
+      <Button type="button" className="fat-action" variant="secondary" onClick={logAnother}>
         Log another
       </Button>
       <p className="muted text-sm receipt-email-note">
@@ -369,22 +364,13 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
         </FinancePanel>
       )}
 
-      <div className="register-sticky print-hide" role="region" aria-label="Cash actions">
-        {saved ? (
-          <>
-            <Button type="button" className="fat-action" onClick={() => void onShare()}>
-              Share or copy
-            </Button>
-            <Button type="button" className="fat-action" variant="secondary" onClick={logAnother}>
-              Log another
-            </Button>
-          </>
-        ) : (
+      {saved ? null : (
+        <div className="register-sticky print-hide" role="region" aria-label="Cash actions">
           <Button type="button" className="fat-action" disabled={loading} onClick={() => void onSubmit()}>
             {loading ? 'Saving…' : 'Save cash log'}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
