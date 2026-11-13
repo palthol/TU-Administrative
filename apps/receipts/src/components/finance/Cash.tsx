@@ -15,6 +15,7 @@ import {
   buildReceiptShareText,
   printReceipt,
   type ReceiptCardInput,
+  type ReceiptPrintCopies,
 } from '@/lib/receiptCard';
 import type { Plan } from '@/lib/planPrefill';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
   const [personChosen, setPersonChosen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [saved, setSaved] = useState<SavedReceipt | null>(null);
+  const [printCopies, setPrintCopies] = useState<ReceiptPrintCopies>('two');
   const amountRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -90,6 +92,7 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
     setPersonChosen(false);
     setSelectedPlan(null);
     setSaved(null);
+    setPrintCopies('two');
     setMsg(null);
     setDetails(null);
     focusAmount();
@@ -167,7 +170,25 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
 
   const receiptActions = saved ? (
     <div className="receipt-actions print-hide">
-      <Button type="button" className="fat-action" onClick={() => printReceipt()}>
+      <div className="receipt-print-mode" role="radiogroup" aria-label="Print copies">
+        <button
+          type="button"
+          className={printCopies === 'two' ? 'method-chip method-chip-active' : 'method-chip'}
+          aria-pressed={printCopies === 'two'}
+          onClick={() => setPrintCopies('two')}
+        >
+          Member + gym
+        </button>
+        <button
+          type="button"
+          className={printCopies === 'single' ? 'method-chip method-chip-active' : 'method-chip'}
+          aria-pressed={printCopies === 'single'}
+          onClick={() => setPrintCopies('single')}
+        >
+          Member copy
+        </button>
+      </div>
+      <Button type="button" className="fat-action" onClick={() => printReceipt(undefined, printCopies)}>
         Print
       </Button>
       <Button
@@ -191,22 +212,24 @@ export function Cash({ connection, defaultIssuedBy }: { connection: Connection; 
   ) : null;
 
   return (
-    <div className="register-page">
-      <div className="print-hide">
-        <PageHeading
-          eyebrow="Finance"
-          title="Cash"
-          summary="Register mode — person, amount, method, save, receipt."
-          badge="Write · personal log"
-        />
-      </div>
+    <div className={saved ? 'register-page receipt-open' : 'register-page'}>
+      {saved ? null : (
+        <div className="print-hide">
+          <PageHeading
+            eyebrow="Finance"
+            title="Cash"
+            summary="Register mode — person, amount, method, save, receipt."
+            badge="Write · personal log"
+          />
+        </div>
+      )}
 
       {saved ? (
         <>
           <div className="print-hide">
             <StatusBanner message={msg} variant={variant} details={details} />
           </div>
-          <ReceiptCard receipt={saved} />
+          <ReceiptCard receipt={saved} printCopies={printCopies} />
           {receiptActions}
         </>
       ) : (

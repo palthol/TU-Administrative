@@ -40,7 +40,7 @@ This file remains the live endpoint wiring map (destination names updated below)
 
 Form: member display name, plan prefill (when the API is present), amount received (USD→cents),
 payment chips (`cash|card|cashapp|venmo|paypal|zelle|other`), received by, optional note.
-Embeds Participant lookup. After save, shows a printable receipt card.
+Embeds Participant lookup. After save, shows a ruled receipt document (screen on cellar; print is a Letter member/gym pair).
 
 | Action | Method · Endpoint | Request body | Success | On success UI |
 | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Embeds Participant lookup. After save, shows a printable receipt card.
 | **Current plan** (after a person is chosen) | `GET /api/admin/billing/subscriptions/current?participant_id=&account_id=` | at least one UUID required; send both when known | `{ ok:true, plan }` or `{ ok:true, plan:null }` | Current enrollment prefills amount; `plan: null` falls through to the picker. |
 | **Save cash log** | `POST /api/admin/billing/personal-finance-entries` | `{ entry_kind:"cash_received", member_display_name, amount_cents, method, issued_by, notes?, account_id? }` | `{ ok:true, id }` | Receipt card (no database IDs). Share/print/mailto use `buildReceiptShareText`. |
 | **Share or copy** | — (no API) | — | — | `navigator.share` / clipboard of friendly receipt text. |
-| **Print** | — (no API) | — | — | `@media print` stylesheet prints the card only. |
+| **Print** | — (no API) | — | — | US Letter, `@page { size: letter; margin: 0 }`. Default is member copy on the top half and gym copy below a fold at 5.5in. “Member copy” prints only the top half. |
 | **Email** | — (no API) | — | — | `mailto:` with subject/body; `to` is the looked-up person email when present. A real send is a later option. |
 
 Plan reads live in `apps/receipts/src/lib/planPrefill.ts` (TU-api PR #68, not merged yet). If either
