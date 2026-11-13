@@ -710,6 +710,144 @@ p {
   }
 }
 
+.receipt-card {
+  max-width: 28rem;
+  outline: none;
+  margin: 0 auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.65rem;
+  background: white;
+  padding: 1.5rem 1.25rem;
+  display: grid;
+  gap: 1.1rem;
+}
+.receipt-card-header {
+  display: grid;
+  gap: 0.2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.receipt-card-brand {
+  margin: 0;
+  color: #852525;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.receipt-card-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+.receipt-card-amount {
+  margin: 0.35rem 0 0;
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+.receipt-card-rows {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+.receipt-card-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.receipt-card-rows dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 650;
+  flex-shrink: 0;
+}
+.receipt-card-rows dd {
+  margin: 0;
+  text-align: right;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  max-width: 65%;
+}
+.receipt-card-ref {
+  margin: 0;
+  text-align: right;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
+}
+.receipt-actions {
+  display: grid;
+  gap: 0.65rem;
+  max-width: 28rem;
+  margin: 0 auto;
+}
+.receipt-email-note {
+  margin: 0;
+}
+
+@media (min-width: 1024px) {
+  .receipt-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .receipt-email-note {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1023px) {
+  .receipt-actions .receipt-desktop-only {
+    display: none !important;
+  }
+  .receipt-actions {
+    padding-bottom: 8.5rem;
+  }
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+    size: auto;
+  }
+  html,
+  body {
+    background: white !important;
+  }
+  .print-hide,
+  .operator-rail,
+  .workspace-header,
+  .bottom-nav,
+  .register-sticky,
+  .skip-link {
+    display: none !important;
+  }
+  .operator-shell,
+  .operator-body,
+  .workspace-main,
+  .register-page {
+    display: block !important;
+    background: white !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .receipt-card {
+    max-width: 28rem;
+    margin: 0;
+    border: 1px solid #222;
+    box-shadow: none;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

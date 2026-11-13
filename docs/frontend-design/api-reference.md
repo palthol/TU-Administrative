@@ -132,6 +132,30 @@ Requires an existing `payment_refunds` row; voids the active `money_in` receipt 
 
 ---
 
+## Billing — plan catalog (receipt prefill)  ⚠️ TU-api PR #68, not merged yet
+
+Read-only. Same admin cookie / `x-admin-key` as every other `/api/admin/*` call. The receipts
+Cash screen hides the plan picker if these routes 404 or fail.
+
+### `GET /api/admin/billing/plans`
+Active catalog rows only (`is_active = true`).
+Success: `{ "ok":true, "plans": Plan[] }`. Empty catalog: `{ "ok":true, "plans": [] }`.
+```ts
+Plan = { id; name; plan_category:'group'|'private'|'hybrid';
+  billing_cadence:'per_session'|'monthly'|'contract'|'custom';
+  price_cents: number; is_active: true }
+```
+
+### `GET /api/admin/billing/subscriptions/current?participant_id=&account_id=`
+At least one UUID required; send both when known. Prefer `participant_id`.
+Success, no current enrollment: `{ "ok":true, "plan": null }`.
+Success, enrolled: `{ "ok":true, "plan": Plan }` (`is_active` may be `false` if the catalog
+row was later deactivated). Unknown / paused / ended access is `plan: null`, not 404.
+Errors: `400` `participant_or_account_id_required` | `invalid_participant_id` |
+`invalid_account_id`.
+
+---
+
 ## Participants
 
 ### `GET /api/admin/participants/search?q=<text>&limit=8`
