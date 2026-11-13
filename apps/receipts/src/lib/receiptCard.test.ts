@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReceiptCardInput } from './receiptCard';
 import {
+  RECEIPT_PRINT_ATTR,
   buildReceiptCardModel,
   buildReceiptEmailSubject,
   buildReceiptMailtoHref,
@@ -13,6 +14,7 @@ import {
 
 const ENTRY_ID = 'a1b2c3d4-e5f6-4789-8abc-def012345678';
 const RECORDED_AT = new Date('2026-11-13T16:20:00.000Z');
+const DATE_LINE = 'Nov 13, 2026 · 11:20 AM ET';
 
 const sample: ReceiptCardInput = {
   personName: 'Alex Rivera',
@@ -33,11 +35,9 @@ describe('shortReceiptRef', () => {
 });
 
 describe('formatReceiptDateTime', () => {
-  it('formats in America/New_York', () => {
-    const text = formatReceiptDateTime(RECORDED_AT);
-    expect(text).toMatch(/Nov 13, 2026/);
-    expect(text).toMatch(/11:20 AM/);
-    expect(text).toMatch(/EST|GMT-5/);
+  it('formats one America/New_York line with ET, not EST/EDT', () => {
+    expect(formatReceiptDateTime(RECORDED_AT)).toBe(DATE_LINE);
+    expect(formatReceiptDateTime(RECORDED_AT)).not.toMatch(/EST|EDT|GMT/);
   });
 });
 
@@ -46,26 +46,37 @@ describe('receipt card text', () => {
     const card = buildReceiptCardModel(sample);
     expect(card.gymName).toBe('Temple Underground');
     expect(card.title).toBe('Receipt');
+    expect(card.kicker).toBe('Temple Underground · Receipt');
     expect(card.amount).toBe('$89.00');
+    expect(card.dateLine).toBe(DATE_LINE);
     expect(card.rows).toEqual([
       { label: 'Person', value: 'Alex Rivera' },
       { label: 'Plan', value: 'Unlimited monthly' },
       { label: 'Payment', value: 'Cash' },
       { label: 'Received by', value: 'Singh' },
-      { label: 'Date', value: formatReceiptDateTime(RECORDED_AT) },
+      { label: 'Date', value: DATE_LINE },
       { label: 'Note', value: 'November dues' },
     ]);
     expect(card.receiptRef).toBe('TU-A1B2C3D4');
     expect(receiptCardContainsDatabaseId(card, ENTRY_ID)).toBe(false);
   });
 
-  it('omits plan and note when absent', () => {
+  it('keeps plan and note rows when empty so print layout stays a 2×3 grid', () => {
     const card = buildReceiptCardModel({
       ...sample,
       planName: '  ',
       note: null,
     });
-    expect(card.rows.map((row) => row.label)).toEqual(['Person', 'Payment', 'Received by', 'Date']);
+    expect(card.rows.map((row) => row.label)).toEqual([
+      'Person',
+      'Plan',
+      'Payment',
+      'Received by',
+      'Date',
+      'Note',
+    ]);
+    expect(card.rows.find((row) => row.label === 'Plan')?.value).toBe('');
+    expect(card.rows.find((row) => row.label === 'Note')?.value).toBe('');
   });
 
   it('labels Cash App as two words', () => {
@@ -86,7 +97,7 @@ describe('share text', () => {
         'Amount received: $89.00',
         'Payment: Cash',
         'Received by Singh',
-        formatReceiptDateTime(RECORDED_AT),
+        DATE_LINE,
         'Note: November dues',
       ].join('\n'),
     );
@@ -142,6 +153,17 @@ describe('print helper', () => {
     vi.stubGlobal('window', { print });
     printReceipt();
     expect(print).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('records two-copy vs single-copy print mode', () => {
+    const setAttribute = vi.fn();
+    vi.stubGlobal('document', { documentElement: { setAttribute } });
+    const printFn = vi.fn();
+    printReceipt(printFn, 'two');
+    expect(setAttribute).toHaveBeenCalledWith(RECEIPT_PRINT_ATTR, 'two');
+    printReceipt(printFn, 'single');
+    expect(setAttribute).toHaveBeenCalledWith(RECEIPT_PRINT_ATTR, 'single');
     vi.unstubAllGlobals();
   });
 });

@@ -3,6 +3,12 @@ import { formatUsdFromCents } from '@/lib/shareFormats';
 
 export const GYM_NAME = 'Temple Underground';
 export const RECEIPT_TIME_ZONE = 'America/New_York';
+export const RECEIPT_KICKER = 'Temple Underground · Receipt';
+export const RECEIPT_MEMBER_KICKER = 'Temple Underground · Receipt · Member Copy';
+export const RECEIPT_GYM_KICKER = 'Temple Underground · Receipt · Gym Copy';
+export const RECEIPT_PRINT_ATTR = 'data-receipt-print';
+
+export type ReceiptPrintCopies = 'two' | 'single';
 
 export type ReceiptCardInput = {
   personName: string;
@@ -23,7 +29,11 @@ export type ReceiptCardRow = {
 export type ReceiptCardModel = {
   gymName: string;
   title: string;
+  kicker: string;
+  memberKicker: string;
+  gymKicker: string;
   amount: string;
+  dateLine: string;
   rows: ReceiptCardRow[];
   receiptRef: string;
 };
@@ -36,15 +46,18 @@ export function shortReceiptRef(entryId: string): string {
 }
 
 export function formatReceiptDateTime(recordedAt: Date, timeZone = RECEIPT_TIME_ZONE): string {
-  return new Intl.DateTimeFormat('en-US', {
+  const datePart = new Intl.DateTimeFormat('en-US', {
     timeZone,
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+  }).format(recordedAt);
+  const timePart = new Intl.DateTimeFormat('en-US', {
+    timeZone,
     hour: 'numeric',
     minute: '2-digit',
-    timeZoneName: 'short',
   }).format(recordedAt);
+  return `${datePart} · ${timePart} ET`;
 }
 
 export function paymentModeLabel(method: PaymentMethod): string {
@@ -52,27 +65,37 @@ export function paymentModeLabel(method: PaymentMethod): string {
 }
 
 export function buildReceiptCardModel(input: ReceiptCardInput): ReceiptCardModel {
-  const rows: ReceiptCardRow[] = [{ label: 'Person', value: input.personName.trim() }];
-  const plan = input.planName?.trim();
-  if (plan) rows.push({ label: 'Plan', value: plan });
-  rows.push(
-    { label: 'Payment', value: paymentModeLabel(input.paymentMethod) },
-    { label: 'Received by', value: input.receivedBy.trim() },
-    { label: 'Date', value: formatReceiptDateTime(input.recordedAt) },
-  );
-  const note = input.note?.trim();
-  if (note) rows.push({ label: 'Note', value: note });
+  const dateLine = formatReceiptDateTime(input.recordedAt);
   return {
     gymName: GYM_NAME,
     title: 'Receipt',
+    kicker: RECEIPT_KICKER,
+    memberKicker: RECEIPT_MEMBER_KICKER,
+    gymKicker: RECEIPT_GYM_KICKER,
     amount: formatUsdFromCents(input.amountCents),
-    rows,
+    dateLine,
+    rows: [
+      { label: 'Person', value: input.personName.trim() },
+      { label: 'Plan', value: input.planName?.trim() ?? '' },
+      { label: 'Payment', value: paymentModeLabel(input.paymentMethod) },
+      { label: 'Received by', value: input.receivedBy.trim() },
+      { label: 'Date', value: dateLine },
+      { label: 'Note', value: input.note?.trim() ?? '' },
+    ],
     receiptRef: shortReceiptRef(input.entryId),
   };
 }
 
 export function receiptCardContainsDatabaseId(model: ReceiptCardModel, entryId: string): boolean {
-  const haystack = [model.gymName, model.title, model.amount, model.receiptRef, ...model.rows.map((row) => `${row.label} ${row.value}`)].join('\n');
+  const haystack = [
+    model.gymName,
+    model.title,
+    model.kicker,
+    model.amount,
+    model.dateLine,
+    model.receiptRef,
+    ...model.rows.map((row) => `${row.label} ${row.value}`),
+  ].join('\n');
   if (UUID_LIKE.test(haystack)) return true;
   const id = entryId.trim();
   return Boolean(id) && haystack.includes(id);
@@ -110,7 +133,13 @@ export function buildReceiptMailtoHref(params: {
   return to ? `mailto:${to}?${query}` : `mailto:?${query}`;
 }
 
-export function printReceipt(printFn?: () => void): void {
+export function applyReceiptPrintCopies(copies: ReceiptPrintCopies): void {
+  const value = copies === 'single' ? 'single' : 'two';
+  globalThis.document?.documentElement?.setAttribute(RECEIPT_PRINT_ATTR, value);
+}
+
+export function printReceipt(printFn?: () => void, copies: ReceiptPrintCopies = 'two'): void {
+  applyReceiptPrintCopies(copies);
   if (printFn) {
     printFn();
     return;
