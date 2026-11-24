@@ -2,14 +2,16 @@
 
 Responsive operator workspace using the existing React/Vite/Tailwind/Radix stack.
 
-Current release: **read-only Phase 1 interim slice**. Today, People, Billing, Classes,
-and More replace the analysis-first console navigation. Search participants and explicitly
-select a linked payer; page through waivers and open a reading-copy PDF; view a New York
-local-day agenda and saved attendance summaries; review defined monthly metrics,
-receivables, expenses, inquiries and curated reports.
+Current release: **read-only Phase 1 interim slice**, plus Enrollment writes that depend
+on a sibling TU-api PR. Today, People, Enrollment, Billing, Classes, and More replace
+the analysis-first console navigation. Search participants and explicitly select a linked
+payer; create placeholder people and enroll them on a plan; page through waivers and open
+a reading-copy PDF; view a New York local-day agenda and saved attendance summaries;
+review defined monthly metrics, receivables, expenses, inquiries and curated reports.
 
-Payment recording, enrollment, recurring agreements, charge generation and corrections
-remain gated by the verified read/release gaps. Individual attendance updates await named
+Payment recording, recurring agreements, charge generation and corrections remain gated
+by the verified read/release gaps. Enrollment shows **API not available yet** until the
+TU-api placeholder and enrollment-board routes are deployed. Individual attendance updates await named
 roster reads and a reviewed exception workflow. Cash/operating-delta totals are withheld
 pending full-refund reporting validation. Separate receipts and waiver-viewer apps remain
 available and retain their existing contracts and limitations. More → Reports and tools,

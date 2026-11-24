@@ -156,6 +156,50 @@ Errors: `400` `participant_or_account_id_required` | `invalid_participant_id` |
 
 ---
 
+## Enrollment board and placeholders  ⚠️ sibling TU-api PR, not on develop yet
+
+Dashboard Enrollment (`#enrollment`) codes against these routes. Same admin cookie /
+`x-admin-key` as every other `/api/admin/*` call. If a route 404s or the request fails
+to connect, the dashboard shows **API not available yet** and does not invent rows.
+
+Creates return HTTP `201` with `{ ok:true, ... }`. Clients still key off `res.ok`.
+
+### `GET /api/admin/billing/enrollment-board?status=enrolled|unenrolled|placeholder&q=`
+Success: `{ "ok":true, "counts": EnrollmentCounts, "rows": EnrollmentRow[] }`.
+Omit `status` for the full board. `q` is an optional name search.
+```ts
+EnrollmentCounts = { total; enrolled; unenrolled; placeholders }
+EnrollmentRow = {
+  participant_id; first_name; last_name; is_placeholder; placeholder_reason;
+  dob_is_placeholder; waiver_signed; account_id; account_name;
+  subscription: { id; plan_id; plan_name; status; start_date } | null
+}
+```
+
+### `POST /api/admin/participants/placeholders`
+Body:
+```json
+{ "first_name":"Jordan", "last_name":"Blake", "email?":"", "phone?":"",
+  "date_of_birth?":"2012-01-01", "dob_is_placeholder?":true,
+  "dob_placeholder_reason?":"Family did not know the date",
+  "placeholder_reason":"Walk-in, paperwork later",
+  "account_id?":"uuid", "account_name?":"Blake household",
+  "plan_id?":"uuid", "start_date?":"2026-12-01" }
+```
+Success `201`: `{ ok:true, participant:{ id, first_name, last_name, is_placeholder,
+placeholder_reason, dob_is_placeholder }, account_id, subscription|null }`.
+Send `account_id` **or** `account_name`, not both. A stand-in DOB requires
+`dob_is_placeholder: true` plus `dob_placeholder_reason`. Optional `plan_id`
+enrolls without creating a charge.
+
+### `POST /api/admin/billing/subscriptions`
+Name-based enrollment for an existing person. No initial charge.
+Body `{ "participant_id", "account_id?", "plan_id", "start_date?" }`.
+Success `201`: `{ ok:true, subscription }`.
+`409` if the participant already has an active subscription.
+
+---
+
 ## Participants
 
 ### `GET /api/admin/participants/search?q=<text>&limit=8`

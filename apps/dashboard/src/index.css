@@ -624,7 +624,7 @@ button.operator-link:disabled {
   }
   .bottom-nav {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     position: fixed;
     bottom: 0;
     left: 0;
@@ -689,6 +689,145 @@ button.operator-link:disabled {
   .record-card dd {
     text-align: left;
     max-width: 100%;
+  }
+}
+.enrollment-page .count-chips {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.count-chip {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  padding: 0.85rem 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+  background: #fafaf7;
+}
+.count-chip span {
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.count-chip strong {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.filter-tabs button {
+  min-height: 44px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: white;
+  font-weight: 600;
+}
+.filter-tabs button[aria-selected="true"] {
+  background: #943131;
+  color: white;
+  border-color: #943131;
+}
+.flag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.flag-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.flag-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+button.flag-badge {
+  min-height: 28px;
+  height: auto;
+}
+.flag-badge.placeholder {
+  background: #f4e7c8;
+  color: #6a4a12;
+  border-color: #e2cc96;
+}
+.flag-badge.dob {
+  background: #e7eef8;
+  color: #1e3a5f;
+  border-color: #c5d4ea;
+}
+.flag-badge.waiver {
+  background: #f8e4e2;
+  color: #7a2420;
+  border-color: #e7c2be;
+}
+.flag-reason {
+  font-size: 0.8rem;
+  color: #394452;
+}
+.stack-field {
+  display: grid;
+  gap: 0.4rem;
+}
+.stack-field label {
+  font-weight: 650;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.field-error {
+  color: #872727;
+  font-size: 0.825rem;
+}
+.success-message {
+  background: #edf7ee;
+  color: #215c2a;
+  padding: 1rem;
+  border: 1px solid #c4e0c7;
+  border-radius: 0.4rem;
+}
+.unavailable-state {
+  display: grid;
+  gap: 0.75rem;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 1023px) {
+  .enrollment-page .count-chips {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 479px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+  .bottom-nav a {
+    font-size: 0.7rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {

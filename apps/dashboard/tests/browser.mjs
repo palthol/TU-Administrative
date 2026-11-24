@@ -134,11 +134,22 @@ async function verify(width) {
       await route.fulfill({ status: 204, headers });
       return;
     }
-    assert.equal(
-      route.request().method(),
-      "GET",
-      "Dashboard must never perform a write",
-    );
+    const method = route.request().method();
+    const path = url.pathname;
+    if (method === "POST") {
+      assert.ok(
+        path.endsWith("/participants/placeholders") ||
+          path.endsWith("/billing/subscriptions"),
+        "Dashboard writes are limited to enrollment routes",
+      );
+      await route.fulfill({
+        status: 201,
+        headers,
+        json: { ok: true, participant: null, subscription: null },
+      });
+      return;
+    }
+    assert.equal(method, "GET", "Dashboard must never perform a write");
     assert.equal(
       route.request().headers()["x-admin-key"],
       "local-synthetic-key",
@@ -146,7 +157,6 @@ async function verify(width) {
     requests.push(url);
     let data = { ok: true, rows: [] },
       status = 200;
-    const path = url.pathname;
     if (path.endsWith("/auth/me"))
       data = {
         ok: true,
@@ -275,7 +285,40 @@ async function verify(width) {
           },
         ],
       };
-    } else if (path.endsWith("/ar-aging"))
+    } else if (path.endsWith("/enrollment-board"))
+      data = {
+        ok: true,
+        counts: { total: 1, enrolled: 0, unenrolled: 1, placeholders: 1 },
+        rows: [
+          {
+            participant_id: "enroll-jordan",
+            first_name: "Jordan",
+            last_name: "Blake",
+            is_placeholder: true,
+            placeholder_reason: "Walk-in, paperwork later",
+            dob_is_placeholder: true,
+            waiver_signed: false,
+            account_id: "acct-blake",
+            account_name: "Blake household",
+            subscription: null,
+          },
+        ],
+      };
+    else if (path.endsWith("/billing/plans"))
+      data = {
+        ok: true,
+        plans: [
+          {
+            id: "plan-group",
+            name: "Basic Group Plan",
+            plan_category: "group",
+            billing_cadence: "monthly",
+            price_cents: 10000,
+            is_active: true,
+          },
+        ],
+      };
+    else if (path.endsWith("/ar-aging"))
       data = {
         ok: true,
         rows: [
@@ -505,7 +548,14 @@ async function verify(width) {
     "http://localhost:5176",
   );
 
-  for (const name of ["Today", "People", "Billing", "Classes", "More"]) {
+  for (const name of [
+    "Today",
+    "People",
+    "Enrollment",
+    "Billing",
+    "Classes",
+    "More",
+  ]) {
     await page
       .locator(
         name === "More" && width < 1024
