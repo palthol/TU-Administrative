@@ -20,6 +20,7 @@ import { ParticipantLookup, Waivers } from "@/components/operator/People";
 import { Today } from "@/components/operator/Today";
 import { Classes } from "@/components/operator/Classes";
 import { Billing } from "@/components/operator/Billing";
+import { Enrollment } from "@/components/operator/Enrollment";
 import { More } from "@/components/operator/Reports";
 import type { Connection } from "@/components/operator/shared";
 import {
@@ -28,8 +29,31 @@ import {
   resolveToolLink,
 } from "@/lib/tool-links";
 
-const destinations = ["Today", "People", "Billing", "Classes", "More"] as const;
+const destinations = [
+  "Today",
+  "People",
+  "Enrollment",
+  "Billing",
+  "Classes",
+  "More",
+] as const;
 type Destination = (typeof destinations)[number];
+const navSymbols: Record<Destination, string> = {
+  Today: "◷",
+  People: "◎",
+  Enrollment: "＋",
+  Billing: "$",
+  Classes: "▦",
+  More: "⋯",
+};
+const navCopy: Record<Destination, string> = {
+  Today: "Start with the person in front of you.",
+  People: "Find the right person and their linked payer.",
+  Enrollment: "Placeholder people and subscription enrollment.",
+  Billing: "Review payer context before making a financial decision.",
+  Classes: "The gym’s local day, in time order.",
+  More: "Reports and the tools behind the desk.",
+};
 const fromHash = (): Destination =>
   destinations.find((d) => `#${d.toLowerCase()}` === window.location.hash) ||
   "Today";
@@ -328,10 +352,11 @@ function Workspace({
     window.location.hash = next.toLowerCase();
     setNav(next);
   };
-  const navLink = (name: Destination) => (
+  const navLink = (name: Destination, compact = false) => (
     <a
       key={name}
       href={`#${name.toLowerCase()}`}
+      aria-label={name}
       aria-current={nav === name ? "page" : undefined}
       onClick={(e) => {
         e.preventDefault();
@@ -339,13 +364,9 @@ function Workspace({
       }}
     >
       <span className="nav-symbol" aria-hidden="true">
-        {
-          { Today: "◷", People: "◎", Billing: "$", Classes: "▦", More: "⋯" }[
-            name
-          ]
-        }
+        {navSymbols[name]}
       </span>
-      {name}
+      {compact && name === "Enrollment" ? "Enroll" : name}
     </a>
   );
   return (
@@ -367,7 +388,9 @@ function Workspace({
           UNDERGROUND
         </a>
         <p className="rail-caption">OPERATOR WORKSPACE</p>
-        <nav aria-label="Main navigation">{destinations.map(navLink)}</nav>
+        <nav aria-label="Main navigation">
+          {destinations.map((name) => navLink(name))}
+        </nav>
         <p className="rail-foot">
           LOOK UP.
           <br />
@@ -422,20 +445,13 @@ function Workspace({
               <h1 tabIndex={-1} ref={heading}>
                 {nav === "Today" ? "At the desk" : nav}
               </h1>
-              <p className="muted">
-                {
-                  {
-                    Today: "Start with the person in front of you.",
-                    People: "Find the right person and their linked payer.",
-                    Billing:
-                      "Review payer context before making a financial decision.",
-                    Classes: "The gym’s local day, in time order.",
-                    More: "Reports and the tools behind the desk.",
-                  }[nav]
-                }
-              </p>
+              <p className="muted">{navCopy[nav]}</p>
             </div>
-            <span className="release-badge">Read-only interim release</span>
+            <span className="release-badge">
+              {nav === "Enrollment"
+                ? "Writes when the API is available"
+                : "Read-only interim release"}
+            </span>
           </div>
           {nav === "People" && (
             <ParticipantLookup
@@ -477,6 +493,11 @@ function Workspace({
               <Waivers connection={connection} selected={participant} />
             </div>
           )}
+          {visited.includes("Enrollment") && (
+            <div hidden={nav !== "Enrollment"}>
+              <Enrollment connection={connection} />
+            </div>
+          )}
           {visited.includes("Billing") && (
             <div hidden={nav !== "Billing"}>
               <Billing
@@ -510,7 +531,7 @@ function Workspace({
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Mobile navigation">
-        {destinations.slice(0, 4).map(navLink)}
+        {destinations.slice(0, 5).map((name) => navLink(name, true))}
       </nav>
     </div>
   );

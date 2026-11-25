@@ -174,7 +174,7 @@ export function Billing({
         <p>
           Payment entry needs a complete payer statement with charge coverage,
           adjustments, allocations and authoritative remaining balances.
-          Enrollment needs current plans and enrollment records. Recurring
+          Placeholder people and plan enrollment live on Enrollment. Recurring
           agreements need a verified backend release. Refunds, write-offs and
           merges need history and impact review.
         </p>

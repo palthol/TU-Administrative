@@ -7,7 +7,7 @@ There is **no backend here.** The one true API and the Supabase schema live in t
 npm-workspaces monorepo. Node >= 22, npm >= 10.
 
 ```
-apps/dashboard/       Operator dashboard (Today, People, Classes, Billing, Reports). UI built.
+apps/dashboard/       Operator dashboard (Today, People, Enrollment, Classes, Billing, Reports). UI built.
 apps/receipts/        Operator finance tool (cash log, invoices, formal billing). UI built.
 apps/waiver-viewer/   Mobile waiver review app (SSO login or staff-key unlock fallback).
 docs/frontend-design/ Design home: per-screen → API function maps for the admin apps.
