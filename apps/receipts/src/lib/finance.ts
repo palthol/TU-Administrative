@@ -1,6 +1,16 @@
 export const PAYMENT_METHODS = ['cash', 'card', 'cashapp', 'venmo', 'paypal', 'zelle', 'other'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  cash: 'Cash',
+  card: 'Card',
+  cashapp: 'Cash App',
+  venmo: 'Venmo',
+  paypal: 'PayPal',
+  zelle: 'Zelle',
+  other: 'Other',
+};
+
 export const destinations = ['Cash', 'Invoice', 'Recent', 'Formal', 'More'] as const;
 export type Destination = (typeof destinations)[number];
 

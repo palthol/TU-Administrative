@@ -6,6 +6,7 @@ import {
   type Row,
 } from "@/lib/operator";
 import {
+  ExternalToolLink,
   Limitation,
   Panel,
   ReadStatus,
@@ -23,7 +24,7 @@ export function Billing({
   connection: Connection;
   payer: Account | null;
   onPeople: () => void;
-  receiptsUrl: string;
+  receiptsUrl: string | null;
 }) {
   const state = useEndpoint<{ rows: Row[] }>(
     connection,
@@ -173,7 +174,7 @@ export function Billing({
         <p>
           Payment entry needs a complete payer statement with charge coverage,
           adjustments, allocations and authoritative remaining balances.
-          Enrollment needs current plans and enrollment records. Recurring
+          Placeholder people and plan enrollment live on Enrollment. Recurring
           agreements need a verified backend release. Refunds, write-offs and
           merges need history and impact review.
         </p>
@@ -181,14 +182,10 @@ export function Billing({
           Global charge generation affects eligible accounts across the gym. It
           is not an account-level action and is not exposed here.
         </Limitation>
-        <a
-          className="operator-link"
+        <ExternalToolLink
           href={receiptsUrl}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open separate receipts tool ↗
-        </a>
+          label="Open separate receipts tool"
+        />
         <p className="muted text-sm">
           Authenticate separately. Personal cash logs and invoices are separate
           bookkeeping records; marking an invoice paid does not allocate a

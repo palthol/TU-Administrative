@@ -6,7 +6,17 @@ reference lives there at `docs/admin-api.md`; this file is the front-end-facing 
 the exact shapes the UIs depend on.
 
 - **Base URL:** `http://localhost:3001` locally; the deployed host in production.
-- **Admin auth:** header `x-admin-key: <ADMIN_API_KEY>` on every `/api/admin/*` call.
+- **Credentials:** all calls use `fetch(..., { credentials:'include' })`. Apps never read cookies;
+  auth state comes only from `GET /api/auth/me`.
+- **SSO auth:** `POST /api/auth/login` with `{ email, password }` returns `200 { email }` and the API
+  sets a host-only HttpOnly cookie named `__Host-tu_admin_session` on `api.templeunderground.com`
+  (`SameSite=Strict`, no `Domain`), or `401`. `503` when the auth provider is down. `429 { error:"rate_limited" }`
+  when rate limited. `GET /api/auth/me` returns `200 { email }` or `401`. `POST /api/auth/logout`
+  returns `204`.
+- **Admin auth:** when SSO is deployed, `/api/admin/*` is authorized by that cookie session (browser
+  attaches it because calls use `credentials:'include'`). If SSO is not deployed yet
+  (`GET /api/auth/me` returns `404`), `/api/admin/*` is guarded by header
+  `x-admin-key: <ADMIN_API_KEY>`.
 - **Viewer auth:** `GET /api/viewer/*` on the API is still Cloudflare Access. The waiver
   viewer app does not call it. That app sends `x-admin-key` to `/api/admin/auth/me` and
   `GET /api/admin/reporting/views/waiver-documents`.
@@ -122,6 +132,74 @@ Requires an existing `payment_refunds` row; voids the active `money_in` receipt 
 
 ---
 
+## Billing — plan catalog (receipt prefill)  ⚠️ TU-api PR #68, not merged yet
+
+Read-only. Same admin cookie / `x-admin-key` as every other `/api/admin/*` call. The receipts
+Cash screen hides the plan picker if these routes 404 or fail.
+
+### `GET /api/admin/billing/plans`
+Active catalog rows only (`is_active = true`).
+Success: `{ "ok":true, "plans": Plan[] }`. Empty catalog: `{ "ok":true, "plans": [] }`.
+```ts
+Plan = { id; name; plan_category:'group'|'private'|'hybrid';
+  billing_cadence:'per_session'|'monthly'|'contract'|'custom';
+  price_cents: number; is_active: true }
+```
+
+### `GET /api/admin/billing/subscriptions/current?participant_id=&account_id=`
+At least one UUID required; send both when known. Prefer `participant_id`.
+Success, no current enrollment: `{ "ok":true, "plan": null }`.
+Success, enrolled: `{ "ok":true, "plan": Plan }` (`is_active` may be `false` if the catalog
+row was later deactivated). Unknown / paused / ended access is `plan: null`, not 404.
+Errors: `400` `participant_or_account_id_required` | `invalid_participant_id` |
+`invalid_account_id`.
+
+---
+
+## Enrollment board and placeholders  ⚠️ sibling TU-api PR, not on develop yet
+
+Dashboard Enrollment (`#enrollment`) codes against these routes. Same admin cookie /
+`x-admin-key` as every other `/api/admin/*` call. If a route 404s or the request fails
+to connect, the dashboard shows **API not available yet** and does not invent rows.
+
+Creates return HTTP `201` with `{ ok:true, ... }`. Clients still key off `res.ok`.
+
+### `GET /api/admin/billing/enrollment-board?status=enrolled|unenrolled|placeholder&q=`
+Success: `{ "ok":true, "counts": EnrollmentCounts, "rows": EnrollmentRow[] }`.
+Omit `status` for the full board. `q` is an optional name search.
+```ts
+EnrollmentCounts = { total; enrolled; unenrolled; placeholders }
+EnrollmentRow = {
+  participant_id; first_name; last_name; is_placeholder; placeholder_reason;
+  dob_is_placeholder; waiver_signed; account_id; account_name;
+  subscription: { id; plan_id; plan_name; status; start_date } | null
+}
+```
+
+### `POST /api/admin/participants/placeholders`
+Body:
+```json
+{ "first_name":"Jordan", "last_name":"Blake", "email?":"", "phone?":"",
+  "date_of_birth?":"2012-01-01", "dob_is_placeholder?":true,
+  "dob_placeholder_reason?":"Family did not know the date",
+  "placeholder_reason":"Walk-in, paperwork later",
+  "account_id?":"uuid", "account_name?":"Blake household",
+  "plan_id?":"uuid", "start_date?":"2026-12-01" }
+```
+Success `201`: `{ ok:true, participant:{ id, first_name, last_name, is_placeholder,
+placeholder_reason, dob_is_placeholder }, account_id, subscription|null }`.
+Send `account_id` **or** `account_name`, not both. A stand-in DOB requires
+`dob_is_placeholder: true` plus `dob_placeholder_reason`. Optional `plan_id`
+enrolls without creating a charge.
+
+### `POST /api/admin/billing/subscriptions`
+Name-based enrollment for an existing person. No initial charge.
+Body `{ "participant_id", "account_id?", "plan_id", "start_date?" }`.
+Success `201`: `{ ok:true, subscription }`.
+`409` if the participant already has an active subscription.
+
+---
+
 ## Participants
 
 ### `GET /api/admin/participants/search?q=<text>&limit=8`
@@ -181,6 +259,13 @@ operating_delta_cents, deficit_to_cover_cents, owner_subsidy_cents } }`.
 → `{ ok:true, waiverId, participantId, signatureUrl, documentPdfUrl, documentSha256,
 locale, content_version, created_at, identity_snapshot }` (signed URLs, 5-min expiry).
 Errors: `not_found` (404), `audit_not_found` (404).
+
+People → Open signed PDF does not navigate to `documentPdfUrl`. That stored object is the
+archived upload and can be an incomplete layout. The dashboard instead loads the matching
+row from `GET /api/admin/reporting/views/waiver-documents` and the signature image from
+`signatureUrl`, then builds a reading copy in the browser. Download uses those same bytes.
+The archived object and `documentSha256` are not rewritten. If the signature image or the
+waiver row cannot be read, the panel shows an error and does not open a partial file.
 
 ### `GET /api/viewer/waiver-documents`  (Cloudflare Access, no admin key)
 Same query options as `reporting/views/waiver-documents`; reads `view_waiver_documents`.

@@ -9,7 +9,11 @@ This file remains the live endpoint wiring map (destination names updated below)
 
 ## Shell
 
-- **Unlock gate:** API base + staff key → `GET /api/admin/auth/me` (roles `owner` |
+- **SSO session probe:** `GET /api/auth/me` (`credentials:'include'`; never read the API cookie). `200` unlocks
+  automatically and reads staff identity from `GET /api/admin/auth/me` without `x-admin-key`. `401`
+  redirects to the dashboard login page (`VITE_LOGIN_URL`) with `?return_to=<current URL>`. If the SSO
+  endpoints are not deployed yet (`404`), receipts falls back to the legacy unlock gate.
+- **Unlock gate (legacy fallback):** API base + staff key → `GET /api/admin/auth/me` (roles `owner` |
   `finance` | `front_desk`). Key is memory-only; Lock/reload clears it. `401` dispatches
   `finance-session-expired` and locks the workspace.
 - **Fetch helper:** `adminFetch(apiBase, adminKey, path, { method, json, signal? })` →
@@ -34,15 +38,25 @@ This file remains the live endpoint wiring map (destination names updated below)
 
 ## Tab: Cash log (`QuickCashTab`)
 
-Form: member display name, amount (USD→cents), method (`cash|card|cashapp|venmo|paypal|zelle|other`),
-issued by, notes. Embeds Participant lookup.
+Form: member display name, plan prefill (when the API is present), amount received (USD→cents),
+payment chips (`cash|card|cashapp|venmo|paypal|zelle|other`), received by, optional note.
+Embeds Participant lookup. After save, shows a ruled receipt document (screen on cellar; print is a Letter member/gym pair).
+Date appears once, as the line under the amount (`Nov 12, 2026 · 11:31 PM ET`); there is no DATE field.
 
 | Action | Method · Endpoint | Request body | Success | On success UI |
 | --- | --- | --- | --- | --- |
-| **Save cash log** | `POST /api/admin/billing/personal-finance-entries` | `{ entry_kind:"cash_received", member_display_name, amount_cents, method, issued_by, notes?, account_id? }` | `{ ok:true, id }` | Shows `id`, builds SMS share text (`buildQuickShareText`). |
-| **Share or copy** | — (no API) | — | — | `navigator.share` / clipboard. |
+| **List active plans** (after a person is chosen) | `GET /api/admin/billing/plans` | — | `{ ok:true, plans[] }` (`id, name, plan_category, billing_cadence, price_cents, is_active`) | Short picker. Picking a plan prefills amount (still editable). |
+| **Current plan** (after a person is chosen) | `GET /api/admin/billing/subscriptions/current?participant_id=&account_id=` | at least one UUID required; send both when known | `{ ok:true, plan }` or `{ ok:true, plan:null }` | Current enrollment prefills amount; `plan: null` falls through to the picker. |
+| **Save cash log** | `POST /api/admin/billing/personal-finance-entries` | `{ entry_kind:"cash_received", member_display_name, amount_cents, method, issued_by, notes?, account_id? }` | `{ ok:true, id }` | Receipt card (no database IDs). Share/print/mailto use `buildReceiptShareText`. |
+| **Share or copy** | — (no API) | — | — | `navigator.share` / clipboard of friendly receipt text. |
+| **Print** | — (no API) | — | — | US Letter, `@page { size: letter; margin: 0 }`. Default is member copy on the top half and gym copy below a fold at 5.5in. “Member copy” prints only the top half. |
+| **Email** | — (no API) | — | — | `mailto:` with subject/body; `to` is the looked-up person email when present. A real send is a later option. |
 
-⚠️ Requires migration `0017` (`personal_finance_entries`).
+Plan reads live in `apps/receipts/src/lib/planPrefill.ts` (TU-api PR #68, not merged yet). If either
+plan endpoint returns **404** or fails, the picker is hidden and amount stays manual so this UI
+can merge first. Auth is the existing admin session cookie / `x-admin-key` via `adminFetch`.
+
+⚠️ Cash log write still requires migration `0017` (`personal_finance_entries`).
 
 ---
 

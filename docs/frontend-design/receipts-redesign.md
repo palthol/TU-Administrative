@@ -117,7 +117,9 @@ new API.
 | Unlock | `GET /api/admin/auth/me` | New vs current receipts shell (dashboard parity). |
 | Participant search | `GET /api/admin/participants/search?q=&limit=8` | Cash + Invoice. |
 | External counterparty | `POST /api/admin/billing/external-counterparty-accounts` | Cash + Invoice fallback. |
-| Save cash log | `POST /api/admin/billing/personal-finance-entries` | `entry_kind:"cash_received"`. Migration `0017`. |
+| Save cash log | `POST /api/admin/billing/personal-finance-entries` | `entry_kind:"cash_received"`. Migration `0017`. After save, the receipt is a ruled Letter document (member + gym copies; member-only is a print option). |
+| List active plans | `GET /api/admin/billing/plans` | Receipt amount prefill. Hide picker on 404. TU-api PR #68. |
+| Current enrollment | `GET /api/admin/billing/subscriptions/current` | `participant_id` and/or `account_id`. `{ plan }` or `{ plan:null }`. |
 | Save invoice draft | same POST | `entry_kind:"invoice"`, `invoice_status:"draft"`. |
 | Recent load | `GET /api/admin/billing/personal-finance-entries?limit=80` | |
 | Invoice status | `POST …/personal-finance-entries/:id/invoice-status` | sent / paid / void. |

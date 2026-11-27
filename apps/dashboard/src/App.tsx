@@ -2,6 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDefaultApiBase } from "@/lib/admin-api";
+import { authMe, decideSessionBootstrap, signOut } from "@/lib/auth-api";
+import {
+  buildLoginRedirectUrl,
+  getDefaultLoginUrl,
+  hasFromLoginFlag,
+} from "@/lib/login-url";
 import { readAdmin } from "@/lib/operator-api";
 import {
   localDate,
@@ -14,11 +20,40 @@ import { ParticipantLookup, Waivers } from "@/components/operator/People";
 import { Today } from "@/components/operator/Today";
 import { Classes } from "@/components/operator/Classes";
 import { Billing } from "@/components/operator/Billing";
+import { Enrollment } from "@/components/operator/Enrollment";
 import { More } from "@/components/operator/Reports";
 import type { Connection } from "@/components/operator/shared";
+import {
+  RECEIPTS_PRODUCTION_URL,
+  WAIVER_VIEWER_PRODUCTION_URL,
+  resolveToolLink,
+} from "@/lib/tool-links";
 
-const destinations = ["Today", "People", "Billing", "Classes", "More"] as const;
+const destinations = [
+  "Today",
+  "People",
+  "Enrollment",
+  "Billing",
+  "Classes",
+  "More",
+] as const;
 type Destination = (typeof destinations)[number];
+const navSymbols: Record<Destination, string> = {
+  Today: "◷",
+  People: "◎",
+  Enrollment: "＋",
+  Billing: "$",
+  Classes: "▦",
+  More: "⋯",
+};
+const navCopy: Record<Destination, string> = {
+  Today: "Start with the person in front of you.",
+  People: "Find the right person and their linked payer.",
+  Enrollment: "Placeholder people and subscription enrollment.",
+  Billing: "Review payer context before making a financial decision.",
+  Classes: "The gym’s local day, in time order.",
+  More: "Reports and the tools behind the desk.",
+};
 const fromHash = (): Destination =>
   destinations.find((d) => `#${d.toLowerCase()}` === window.location.hash) ||
   "Today";
@@ -26,9 +61,16 @@ const fromHash = (): Destination =>
 export default function App() {
   const [apiBase, setApiBase] = useState(getDefaultApiBase);
   const [draftKey, setDraftKey] = useState("");
-  const [session, setSession] = useState<{ key: string; staff: Staff } | null>(
-    null,
+  const [bootstrap, setBootstrap] = useState<"checking" | "legacy" | "error">(
+    "checking",
   );
+  const [bootstrapError, setBootstrapError] = useState("");
+  const [signOutError, setSignOutError] = useState("");
+  const [session, setSession] = useState<
+    | { mode: "legacy"; key: string; staff: Staff }
+    | { mode: "session"; key: ""; staff: Staff }
+    | null
+  >(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const loginAbort = useRef<AbortController | null>(null);
@@ -46,6 +88,62 @@ export default function App() {
       loginAbort.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const me = await authMe(apiBase, controller.signal);
+        if (controller.signal.aborted) return;
+        const decision = decideSessionBootstrap(me.ok ? 200 : me.status, {
+          fromLogin: hasFromLoginFlag(window.location.href),
+        });
+        if (decision.kind === "authenticated") {
+          const data = await readAdmin<{ staff: Staff }>(
+            apiBase,
+            "",
+            "/api/admin/auth/me",
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          if (
+            !data.staff ||
+            !["owner", "finance", "front_desk"].includes(data.staff.role)
+          ) {
+            throw new Error("The API did not return a supported staff identity.");
+          }
+          setSession({ mode: "session", key: "", staff: data.staff });
+          return;
+        }
+        if (decision.kind === "legacy") {
+          setBootstrap("legacy");
+          return;
+        }
+        if (decision.kind === "loop-blocked") {
+          setBootstrapError(decision.message);
+          setBootstrap("error");
+          return;
+        }
+        const loginUrl = buildLoginRedirectUrl(
+          getDefaultLoginUrl(),
+          window.location.href,
+        );
+        window.location.assign(loginUrl);
+      } catch (caught) {
+        if (hasFromLoginFlag(window.location.href)) {
+          setBootstrapError(
+            caught instanceof Error
+              ? caught.message
+              : "Signed in, but this app could not load your session. Try signing in again.",
+          );
+          setBootstrap("error");
+          return;
+        }
+        setBootstrap("legacy");
+      }
+    })();
+    return () => controller.abort();
+  }, [apiBase]);
   async function unlock(event: FormEvent) {
     event.preventDefault();
     if (loading || !draftKey.trim()) return;
@@ -67,7 +165,7 @@ export default function App() {
       )
         throw new Error("The API did not return a supported staff identity.");
       if (!controller.signal.aborted) {
-        setSession({ key, staff: data.staff });
+        setSession({ mode: "legacy", key, staff: data.staff });
         setDraftKey("");
       }
     } catch (e) {
@@ -77,6 +175,31 @@ export default function App() {
       if (!controller.signal.aborted) setLoading(false);
     }
   }
+  if (!session && bootstrap === "checking")
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Operator workspace</h1>
+          <p className="muted">Checking session…</p>
+        </div>
+      </main>
+    );
+  if (!session && bootstrap === "error")
+    return (
+      <main className="unlock-page">
+        <div className="unlock-card">
+          <p className="brand-mark">TEMPLE / UNDERGROUND</p>
+          <h1>Operator workspace</h1>
+          <p role="alert" className="error-message">
+            {bootstrapError}
+          </p>
+          <p>
+            <a href={getDefaultLoginUrl()}>Back to sign in</a>
+          </p>
+        </div>
+      </main>
+    );
   if (!session)
     return (
       <main className="unlock-page">
@@ -130,10 +253,21 @@ export default function App() {
     <Workspace
       connection={{ apiBase, adminKey: session.key }}
       staff={session.staff}
+      authMode={session.mode}
       onLock={() => {
         setSession(null);
         setDraftKey("");
         setError("");
+      }}
+      signOutError={signOutError}
+      onSignOut={async () => {
+        setSignOutError("");
+        const result = await signOut(apiBase);
+        if (!result.ok) {
+          setSignOutError(result.message);
+          return;
+        }
+        window.location.assign(getDefaultLoginUrl());
       }}
     />
   );
@@ -142,11 +276,17 @@ export default function App() {
 function Workspace({
   connection,
   staff,
+  authMode,
+  signOutError,
   onLock,
+  onSignOut,
 }: {
   connection: Connection;
   staff: Staff;
+  authMode: "legacy" | "session";
+  signOutError: string;
   onLock: () => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const [nav, setNav] = useState<Destination>(fromHash);
   const [visited, setVisited] = useState<Destination[]>([fromHash()]);
@@ -160,10 +300,28 @@ function Workspace({
   const heading = useRef<HTMLHeadingElement>(null);
   const scrollPositions = useRef<Partial<Record<Destination, number>>>({});
   const previous = useRef(nav);
-  const receiptsUrl =
-    import.meta.env.VITE_RECEIPTS_APP_URL || "http://localhost:5176";
-  const viewerUrl =
-    import.meta.env.VITE_WAIVER_VIEWER_APP_URL || "http://localhost:5177";
+  const receiptsUrl = import.meta.env.DEV
+    ? resolveToolLink(
+        import.meta.env.VITE_RECEIPTS_APP_URL,
+        "http://localhost:5176",
+        true,
+      )
+    : resolveToolLink(
+        import.meta.env.VITE_RECEIPTS_APP_URL,
+        RECEIPTS_PRODUCTION_URL,
+        false,
+      );
+  const viewerUrl = import.meta.env.DEV
+    ? resolveToolLink(
+        import.meta.env.VITE_WAIVER_VIEWER_APP_URL,
+        "http://localhost:5177",
+        true,
+      )
+    : resolveToolLink(
+        import.meta.env.VITE_WAIVER_VIEWER_APP_URL,
+        WAIVER_VIEWER_PRODUCTION_URL,
+        false,
+      );
   useEffect(() => {
     const timer = setInterval(() => setToday(localDate()), 60000);
     return () => clearInterval(timer);
@@ -194,10 +352,11 @@ function Workspace({
     window.location.hash = next.toLowerCase();
     setNav(next);
   };
-  const navLink = (name: Destination) => (
+  const navLink = (name: Destination, compact = false) => (
     <a
       key={name}
       href={`#${name.toLowerCase()}`}
+      aria-label={name}
       aria-current={nav === name ? "page" : undefined}
       onClick={(e) => {
         e.preventDefault();
@@ -205,13 +364,9 @@ function Workspace({
       }}
     >
       <span className="nav-symbol" aria-hidden="true">
-        {
-          { Today: "◷", People: "◎", Billing: "$", Classes: "▦", More: "⋯" }[
-            name
-          ]
-        }
+        {navSymbols[name]}
       </span>
-      {name}
+      {compact && name === "Enrollment" ? "Enroll" : name}
     </a>
   );
   return (
@@ -233,7 +388,9 @@ function Workspace({
           UNDERGROUND
         </a>
         <p className="rail-caption">OPERATOR WORKSPACE</p>
-        <nav aria-label="Main navigation">{destinations.map(navLink)}</nav>
+        <nav aria-label="Main navigation">
+          {destinations.map((name) => navLink(name))}
+        </nav>
         <p className="rail-foot">
           LOOK UP.
           <br />
@@ -263,10 +420,21 @@ function Workspace({
             >
               More
             </a>
-            <Button variant="outline" onClick={onLock}>
-              Lock / Sign out
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (authMode === "session") void onSignOut();
+                else onLock();
+              }}
+            >
+              {authMode === "session" ? "Sign out" : "Lock"}
             </Button>
           </div>
+          {signOutError ? (
+            <p role="alert" className="error-message">
+              {signOutError}
+            </p>
+          ) : null}
         </header>
         <main id="workspace-main" className="workspace-main" tabIndex={-1}>
           <div className="page-heading">
@@ -277,37 +445,30 @@ function Workspace({
               <h1 tabIndex={-1} ref={heading}>
                 {nav === "Today" ? "At the desk" : nav}
               </h1>
-              <p className="muted">
-                {
-                  {
-                    Today: "Start with the person in front of you.",
-                    People: "Find the right person and their linked payer.",
-                    Billing:
-                      "Review payer context before making a financial decision.",
-                    Classes: "The gym’s local day, in time order.",
-                    More: "Reports and the tools behind the desk.",
-                  }[nav]
-                }
-              </p>
+              <p className="muted">{navCopy[nav]}</p>
             </div>
-            <span className="release-badge">Read-only interim release</span>
+            <span className="release-badge">
+              {nav === "Enrollment"
+                ? "Writes when the API is available"
+                : "Read-only interim release"}
+            </span>
           </div>
-          <ParticipantLookup
-            connection={connection}
-            query={query}
-            setQuery={setQuery}
-            selected={participant}
-            onSelect={(p) => {
-              setParticipant(p);
-              setPayer(null);
-              go("People");
-            }}
-            onPayer={(account) => {
-              setPayer(account);
-              go("Billing");
-            }}
-            showHelp={nav === "People"}
-          />
+          {nav === "People" && (
+            <ParticipantLookup
+              connection={connection}
+              query={query}
+              setQuery={setQuery}
+              selected={participant}
+              onSelect={(p) => {
+                setParticipant(p);
+                setPayer(null);
+              }}
+              onPayer={(account) => {
+                setPayer(account);
+                go("Billing");
+              }}
+            />
+          )}
           {visited.includes("Today") && (
             <div hidden={nav !== "Today"}>
               <Today
@@ -330,6 +491,11 @@ function Workspace({
           {visited.includes("People") && (
             <div hidden={nav !== "People"}>
               <Waivers connection={connection} selected={participant} />
+            </div>
+          )}
+          {visited.includes("Enrollment") && (
+            <div hidden={nav !== "Enrollment"}>
+              <Enrollment connection={connection} />
             </div>
           )}
           {visited.includes("Billing") && (
@@ -365,7 +531,7 @@ function Workspace({
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Mobile navigation">
-        {destinations.slice(0, 4).map(navLink)}
+        {destinations.slice(0, 5).map((name) => navLink(name, true))}
       </nav>
     </div>
   );

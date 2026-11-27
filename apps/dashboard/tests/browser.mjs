@@ -4,10 +4,14 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "vite";
 import { localDate } from "../src/lib/operator.ts";
+import { encodeRgbaPng } from "../src/lib/waiver-png.ts";
 
-const { chromium } = await import(
+const playwrightModule = await import(
   process.env.DASHBOARD_PLAYWRIGHT_MODULE || "playwright"
 );
+const { chromium } = playwrightModule.chromium
+  ? playwrightModule
+  : playwrightModule.default;
 const server = await createServer({
   server: { host: "127.0.0.1", port: 5174, strictPort: true },
 });
@@ -67,6 +71,24 @@ const waiver = {
   participant_full_name: person.full_name,
   signed_at_utc: `${day}T12:00:00Z`,
 };
+const signaturePng = Buffer.from(
+  await encodeRgbaPng(
+    40,
+    20,
+    Uint8Array.from(
+      { length: 40 * 20 * 4 },
+      (_, index) => {
+        const pixel = Math.floor(index / 4);
+        const x = pixel % 40;
+        const y = Math.floor(pixel / 40);
+        const channel = index % 4;
+        const ink = x > 4 && x < 30 && y > 4 && y < 16;
+        if (channel === 3) return ink ? 255 : 0;
+        return ink ? 12 : 0;
+      },
+    ),
+  ),
+);
 const requests = [];
 const errors = [];
 const output = process.env.DASHBOARD_SCREENSHOT_DIR;
@@ -85,6 +107,20 @@ async function verify(width) {
       await route.abort();
       return;
     }
+    if (url.pathname === "/synthetic.pdf") {
+      throw new Error("The stored waiver PDF must stay unopened.");
+    }
+    if (url.pathname === "/synthetic-signature.png") {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "access-control-allow-origin": "*",
+        },
+        body: signaturePng,
+      });
+      return;
+    }
     if (!url.pathname.startsWith("/api/admin/")) {
       await route.continue();
       return;
@@ -98,11 +134,22 @@ async function verify(width) {
       await route.fulfill({ status: 204, headers });
       return;
     }
-    assert.equal(
-      route.request().method(),
-      "GET",
-      "Dashboard must never perform a write",
-    );
+    const method = route.request().method();
+    const path = url.pathname;
+    if (method === "POST") {
+      assert.ok(
+        path.endsWith("/participants/placeholders") ||
+          path.endsWith("/billing/subscriptions"),
+        "Dashboard writes are limited to enrollment routes",
+      );
+      await route.fulfill({
+        status: 201,
+        headers,
+        json: { ok: true, participant: null, subscription: null },
+      });
+      return;
+    }
+    assert.equal(method, "GET", "Dashboard must never perform a write");
     assert.equal(
       route.request().headers()["x-admin-key"],
       "local-synthetic-key",
@@ -110,7 +157,6 @@ async function verify(width) {
     requests.push(url);
     let data = { ok: true, rows: [] },
       status = 200;
-    const path = url.pathname;
     if (path.endsWith("/auth/me"))
       data = {
         ok: true,
@@ -215,10 +261,64 @@ async function verify(width) {
         data = {
           ok: true,
           documentPdfUrl: `http://127.0.0.1:5174/synthetic.pdf?revision=${documentReads}`,
+          signatureUrl: `http://127.0.0.1:5174/synthetic-signature.png?revision=${documentReads}`,
+          documentSha256: "ab".repeat(32),
           content_version: "test-v1",
           locale: "en",
         };
-    } else if (path.endsWith("/ar-aging"))
+    }     else if (path.endsWith("/waiver-documents")) {
+      assert.equal(url.searchParams.get("start"), day);
+      assert.equal(url.searchParams.get("end"), nextDay);
+      data = {
+        ok: true,
+        rows: [
+          {
+            ...waiver,
+            participant_date_of_birth: "1991-04-02",
+            participant_email: person.email,
+            heart_disease: false,
+            high_blood_pressure: true,
+            consent_acknowledged: true,
+            initials_risk_assumption: "CR",
+            locale: "en",
+            content_version: "test-v1",
+          },
+        ],
+      };
+    } else if (path.endsWith("/enrollment-board"))
+      data = {
+        ok: true,
+        counts: { total: 1, enrolled: 0, unenrolled: 1, placeholders: 1 },
+        rows: [
+          {
+            participant_id: "enroll-jordan",
+            first_name: "Jordan",
+            last_name: "Blake",
+            is_placeholder: true,
+            placeholder_reason: "Walk-in, paperwork later",
+            dob_is_placeholder: true,
+            waiver_signed: false,
+            account_id: "acct-blake",
+            account_name: "Blake household",
+            subscription: null,
+          },
+        ],
+      };
+    else if (path.endsWith("/billing/plans"))
+      data = {
+        ok: true,
+        plans: [
+          {
+            id: "plan-group",
+            name: "Basic Group Plan",
+            plan_category: "group",
+            billing_cadence: "monthly",
+            price_cents: 10000,
+            is_active: true,
+          },
+        ],
+      };
+    else if (path.endsWith("/ar-aging"))
       data = {
         ok: true,
         rows: [
@@ -284,7 +384,20 @@ async function verify(width) {
     });
   }
 
+  const search = page.getByLabel("Find a participant", { exact: false });
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Today",
+  );
+  const nav =
+    width >= 1024
+      ? page.getByRole("navigation", { name: "Main navigation" })
+      : page.getByRole("navigation", { name: "Mobile navigation" });
+  await nav.getByRole("link", { name: "People", exact: true }).click();
+  await page.getByRole("heading", { name: "People", exact: true }).waitFor();
   const input = page.getByLabel("Find a participant", { exact: false });
+  await input.waitFor();
   await input.fill("c");
   await page.waitForTimeout(300);
   assert(!requests.some((url) => url.searchParams.get("q") === "c"));
@@ -320,6 +433,11 @@ async function verify(width) {
     .first()
     .click();
   await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Billing",
+  );
   const overview = page
     .locator(".operator-panel")
     .filter({
@@ -334,11 +452,9 @@ async function verify(width) {
         ?.querySelector(".large-amount")?.textContent === "$100.00",
   );
   assert.equal(await overview.getByText("$200.00", { exact: true }).count(), 0);
-  const nav =
-    width >= 1024
-      ? page.getByRole("navigation", { name: "Main navigation" })
-      : page.getByRole("navigation", { name: "Mobile navigation" });
   await nav.getByRole("link", { name: "People", exact: true }).click();
+  await input.waitFor();
+  assert.equal(await input.inputValue(), "Casey");
   await page.getByLabel("Only [TU-TEST] Casey Ray on this loaded page").check();
   await page
     .getByRole("button", { name: "View document", exact: true })
@@ -346,14 +462,34 @@ async function verify(width) {
   await page.getByText("Unavailable: signed_url_failed.").waitFor();
   failDocument = false;
   await page.getByRole("button", { name: "Refresh document link" }).click();
-  const pdf = page.getByRole("link", { name: "Open signed PDF" });
-  await pdf.waitFor();
-  const firstUrl = await pdf.getAttribute("href");
-  await page.getByRole("button", { name: "Refresh document link" }).click();
-  await page.waitForFunction(
-    (old) => document.querySelector(".document-detail a")?.href !== old,
-    firstUrl,
+  const readsBeforeOpen = documentReads;
+  await page.getByRole("button", { name: "Open signed PDF" }).click();
+  const preview = page.getByTitle("Signed waiver PDF");
+  await preview.waitFor();
+  await preview.scrollIntoViewIfNeeded();
+  if (output) {
+    await page.screenshot({
+      path: `${output}/signed-pdf-${width}.png`,
+    });
+  }
+  await page.getByRole("link", { name: "Download signed PDF" }).waitFor();
+  const previewSrc = await preview.getAttribute("src");
+  assert.match(previewSrc, /^blob:/);
+  const previewBytes = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    return (await response.arrayBuffer()).byteLength;
+  }, previewSrc);
+  assert.ok(previewBytes > 1000, "opened PDF is empty");
+  assert.equal(
+    await page.evaluate(async (url) => {
+      const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      return String.fromCharCode(...bytes.slice(0, 5));
+    }, previewSrc),
+    "%PDF-",
   );
+  assert.ok(documentReads >= readsBeforeOpen);
+  await page.getByRole("button", { name: "Refresh document link" }).click();
+  await preview.waitFor();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await page
     .getByText("No waiver for this participant on the loaded page.", {
@@ -381,6 +517,21 @@ async function verify(width) {
     .locator(width >= 1024 ? ".operator-rail" : ".workspace-header")
     .getByRole("link", { name: "More", exact: true })
     .click();
+  assert.equal(
+    await page.getByRole("link", { name: "Receipts tool" }).getAttribute("href"),
+    "http://localhost:5176",
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Waiver review tool" })
+      .getAttribute("href"),
+    "http://localhost:5177",
+  );
+  if (output)
+    await page.screenshot({
+      path: `${output}/tools-${width}.png`,
+      fullPage: true,
+    });
   await page.getByRole("button", { name: "Date filters" }).click();
   await page.getByLabel("Start date", { exact: true }).fill("2026-01-01");
   await page.getByLabel("End date", { exact: true }).fill("2026-12-31");
@@ -389,7 +540,22 @@ async function verify(width) {
     .getByText("Applied dates: 2026-01-01 through 2026-12-31", { exact: false })
     .waitFor();
 
-  for (const name of ["Today", "People", "Billing", "Classes", "More"]) {
+  await nav.getByRole("link", { name: "Billing", exact: true }).click();
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open separate receipts tool" })
+      .getAttribute("href"),
+    "http://localhost:5176",
+  );
+
+  for (const name of [
+    "Today",
+    "People",
+    "Enrollment",
+    "Billing",
+    "Classes",
+    "More",
+  ]) {
     await page
       .locator(
         name === "More" && width < 1024
@@ -400,16 +566,45 @@ async function verify(width) {
       )
       .getByRole("link", { name, exact: true })
       .click();
+    await page
+      .getByRole("heading", {
+        name: name === "Today" ? "At the desk" : name,
+        exact: true,
+        level: 1,
+      })
+      .waitFor();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1,
     );
     assert.equal(overflow, false, `${name} overflows at ${width}px`);
+    assert.equal(
+      await search.isVisible(),
+      name === "People",
+      `Find a participant visibility on ${name}`,
+    );
+    if (output && width === 1440) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({
+        path: `${output}/${name.toLowerCase()}-1440.png`,
+        fullPage: false,
+      });
+    }
   }
   await page.goBack();
+  await page
+    .getByRole("heading", { name: "Classes", exact: true, level: 1 })
+    .waitFor();
+  assert.equal(
+    await search.isVisible(),
+    false,
+    "Find a participant stays off Classes",
+  );
+  await nav.getByRole("link", { name: "People", exact: true }).click();
+  await input.waitFor();
   assert.equal(
     await input.inputValue(),
     "Casey",
-    "Search state survives browser Back",
+    "Search state survives leaving People",
   );
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "200%";
